@@ -18,8 +18,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
     t.string "name", null: false
     t.integer "balance_cents"
     t.uuid "uuid"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
   end
 
   create_table "payments", force: :cascade do |t|
@@ -27,8 +25,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
     t.bigint "payee_firm_id", null: false
     t.integer "amount_cents"
     t.text "description"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
     t.index ["payee_firm_id"], name: "index_payments_on_payee_firm_id"
     t.index ["payer_firm_id"], name: "index_payments_on_payer_firm_id"
   end

@@ -5,7 +5,6 @@ class CreatePayments < ActiveRecord::Migration[8.1]
       t.references :payee_firm, null: false, foreign_key: { to_table: :firms }
       t.integer :amount_cents
       t.text :description
-      t.timestamps
     end
   end
 end

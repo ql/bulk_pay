@@ -30,6 +30,13 @@ namespace :db do
     puts "Database #{db_config["database"]} dropped."
   end
 
+  desc "Seed the database"
+  task :seed do
+    ActiveRecord::Base.establish_connection(db_config)
+    ActiveRecord::Base.connection.execute(File.read("./db/seeds/seed.sql"))
+    puts "Database #{db_config["database"]} seeded."
+  end
+
   desc "Reset the database"
   task :reset => [:drop, :create, :migrate]
 

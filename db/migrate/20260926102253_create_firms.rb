@@ -4,7 +4,6 @@ class CreateFirms < ActiveRecord::Migration[8.1]
       t.string :name, null: false
       t.integer :balance_cents
       t.uuid :uuid
-      t.timestamps
     end
   end
 end
