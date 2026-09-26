@@ -2,8 +2,10 @@ source 'https://rubygems.org'
 
 ruby '3.4.5'
 
+gem 'activerecord'
 gem 'rake'
 gem 'rack-app'
+gem 'rspec'
 
 group :test do
   gem 'minitest'

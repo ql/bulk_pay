@@ -1,0 +1,18 @@
+_default: &default
+  host: 'localhost'
+  adapter: 'postgresql'
+  encoding: utf-8
+  username: <%= ENV.fetch("DB_USER", "bulk_pay") %> # FIXME
+  password: <%= ENV.fetch("DB_PASS", "") %>
+
+development:
+  <<: *default
+  database: 'bulk_pay_dev'
+
+test:
+  <<: *default
+  database: 'bulk_pay_test'
+
+production:
+  <<: *default
+  database: 'bulk_pay'
