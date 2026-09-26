@@ -33,7 +33,10 @@ GEM
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
+    nio4r (2.7.5)
     prism (1.9.0)
+    puma (7.1.0)
+      nio4r (~> 2.0)
     rack (3.2.7)
     rack-app (11.0.2)
       rack (>= 3.0.0)
@@ -67,6 +70,7 @@ PLATFORMS
 DEPENDENCIES
   activerecord
   minitest
+  puma
   rack-app
   rake
   rspec
@@ -85,7 +89,9 @@ CHECKSUMS
   json (3.0.2) sha256=8e6d7e7b11384c21230430cef90b71f14849a34a1f4452796670f7c981bd19df
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
+  nio4r (2.7.5)
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
+  puma (7.1.0)
   rack (3.2.7) sha256=93e13e1c24f93556671d85d2d79fa228c3485815c50d7e2f265b5330c6528fb7
   rack-app (11.0.2) sha256=5e8baa819fce2b9608b54e890b8bf4e059335a63e6741c7a9d780e53eac8c799
   rackup (2.3.1) sha256=6c79c26753778e90983761d677a48937ee3192b3ffef6bc963c0950f94688868
