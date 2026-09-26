@@ -4,8 +4,11 @@
 2. Technical stack
 
   At 1 endpoint and 2 tables building full Rails app seems to be pure overhead. 
-  In order to build small clean solution focused on performance and transactional safety 
-  I'm choosing pure Rack app with minimal library surface which can be transplanted on existing Rails app easily, or used as a standalone microservice. Other alternatives might be Sinatra or Roda.
+  In order to build small clean solution focused on performance and transactional safety I'm choosing pure Rack app with 
+    minimal library surface which can be transplanted on existing Rails app easily, or used as a standalone microservice. Other alternatives might be Sinatra or Roda.
+  For ORM I'm choosing ActiveRecord as most popular Ruby db library. 
+  Web server choice is conservative - puma.
+  Testing with Rspec.
 
 3. Transactional safety
 
