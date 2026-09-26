@@ -21,14 +21,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
   end
 
   create_table "payments", force: :cascade do |t|
-    t.bigint "payer_firm_id", null: false
-    t.bigint "payee_firm_id", null: false
+    t.uuid "payer_firm_id", null: false
+    t.uuid "payee_firm_id", null: false
     t.integer "amount_cents"
     t.text "description"
-    t.index ["payee_firm_id"], name: "index_payments_on_payee_firm_id"
-    t.index ["payer_firm_id"], name: "index_payments_on_payer_firm_id"
   end
-
-  add_foreign_key "payments", "firms", column: "payee_firm_id"
-  add_foreign_key "payments", "firms", column: "payer_firm_id"
 end

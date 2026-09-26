@@ -1,0 +1,1 @@
+class InvalidInputJson < StandardError; end

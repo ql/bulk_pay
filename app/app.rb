@@ -9,3 +9,4 @@ ActiveRecord::Base.establish_connection(db_config)
 require './app/models/firm.rb'
 require './app/models/payment.rb'
 require './app/services/process_payments.rb'
+require './app/exceptions.rb'

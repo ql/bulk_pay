@@ -12,4 +12,6 @@
 
 3. Transactional safety
 
+4. Intentionally not implemented: authorization
+
 4. Starting app - see README.txt

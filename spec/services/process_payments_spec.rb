@@ -1,0 +1,100 @@
+require 'spec_helper'
+
+RSpec.describe ProcessPayments, type: :service do
+  subject { described_class.new(payload).call }
+
+  let(:base_payload) { JSON.parse(File.read('./spec/fixtures/payload_1.json')) }
+  let(:payload) { base_payload }
+
+  describe "when JSON is invalid" do
+    let(:payload) { {} }
+
+    it "should raise an InvalidInputJson exception" do
+      expect { subject }.to raise_exception(InvalidInputJson)
+    end
+  end
+
+  describe "amounts" do
+    subject { described_class.new(payload).send(:parse_amount, amount) }
+
+    describe "with garbage input" do
+      let(:amount) { "some gibberish" }
+      it { expect { subject }.to raise_exception(ArgumentError, "wrong amount format") }
+    end
+
+    describe "with mangled decimals" do
+      let(:amount) { "100.gibberish" }
+      it { expect { subject }.to raise_exception(ArgumentError, "wrong amount format") }
+    end
+
+    describe "with too much decimals" do
+      let(:amount) { "100.3234234" }
+      it { expect { subject }.to raise_exception(ArgumentError, "wrong amount format") }
+    end
+
+    describe "without decimals" do
+      let(:amount) { "300" }
+      it { expect(subject).to eq(30000) }
+    end
+
+    describe "with tenth of cent" do
+      let(:amount) { "50.5" }
+      it { expect(subject).to eq(5050) }
+    end
+
+    describe "with cents" do
+      let(:amount) { "9.99" }
+      it { expect(subject).to eq(999) }
+    end
+  end
+
+  describe "when any of firms is not found" do
+    let(:payload) { base_payload.merge('payer_firm_uuid' => 'dummy') }
+
+    it "should raise a RecordNotFound exception" do
+      expect { subject }.to raise_exception(ActiveRecord::RecordNotFound, "firm dummy not found")
+    end
+  end
+
+  describe "when there are no enough funds" do
+    let(:payload) do
+      n = base_payload
+      n['payments'].each { |p| p['amount'] = '99999999' }
+      n
+    end
+
+    it "should return false, so app responds with 422 Not Enough Funds" do
+      expect(subject).to be false
+    end
+  end
+
+  describe "when there are enough funds" do
+    it "should save whole batch in a ledger and return true" do
+      expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
+
+      result = subject
+      expect(result).to be true
+
+      expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
+      expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(5000000 - 625000 - 580050 - 120075)
+      expect(Firm.find_by(name: 'Lopez Bookkeeping').balance_cents).to eq(50000 + 120075)
+      expect(Firm.find_by(name: 'Nair Tax Services').balance_cents).to eq(200000 + 625000 + 580050)
+
+      expect(Payment.count).to eq(3)
+
+      lopez_payment = Payment.find_by(amount_cents: 120075)
+      expect(lopez_payment.description).to eq("Bookkeeping cleanup, 3 clients")
+      expect(lopez_payment.payer_firm_id).to eq('3f1c9a2e-7b4d-4c1e-9a55-2d8e6f0b7c41')
+      expect(lopez_payment.payee_firm_id).to eq('8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10')
+    end
+
+    describe "when two firms send requests to pay each other" do
+      # it should not deadlock
+    end
+
+    describe "when system error occurs in the middle of processing" do
+      # it should not leave partly modified rows
+      # it should raise exception
+    end
+  end
+end
