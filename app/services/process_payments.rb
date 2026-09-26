@@ -6,34 +6,48 @@ class ProcessPayments
   end
 
   def call
+    retries = 0
     validate_and_prepare
-    return false unless sufficient_payer_balance?
+    uuids = extract_firm_uids
+    ActiveRecord::Base.transaction(isolation: :read_committed) do
+      lock_and_cache_firms(uuids)
+      return false unless sufficient_payer_balance?
 
-    json['payments'].each do |p|
-      process_payment(p)
+      json['payments'].each { |p| process_payment(p) }
     end
 
     true
+  rescue ActiveRecord::SerializationFailure, ActiveRecord::LockWaitTimeout => e
+    retries ||= 0
+    if retries < 3
+      retries += 1
+      delay = rand * retries
+      puts "Thread #{Thread.current.object_id} got #{e.class} failure, retrying in #{delay} s. (retry ##{retries})"
+      sleep(delay)
+      retry
+    else
+      raise(ConcurrencyError, "unable to fullfill request, try again")
+    end
   end
 
   private
 
   def process_payment(payment)
-    payee_firm = find_firm!(payment['payee_firm_uuid'])
+    payer_firm = cached_firm(json['payer_firm_uuid'])
+    payee_firm = cached_firm(payment['payee_firm_uuid'])
 
-    amount = payment['amount']
-    payee_firm.transaction do
-      payee_firm.balance_cents += amount
-      payer_firm.balance_cents -= amount
-      payee_firm.save!
-      payer_firm.save!
-      Payment.create!(
-        payer_firm_id: payer_firm.uuid,
-        payee_firm_id: payee_firm.uuid,
-        amount_cents: amount,
-        description: payment['description']
-      )
-    end
+    amount = parse_amount(payment['amount'])
+
+    payee_firm.balance_cents += amount
+    payer_firm.balance_cents -= amount
+    payee_firm.save!
+    payer_firm.save!
+    Payment.create!(
+      payer_firm_id: payer_firm.uuid,
+      payee_firm_id: payee_firm.uuid,
+      amount_cents: amount,
+      description: payment['description']
+    )
   end
 
   # poor man's schema checker here
@@ -42,9 +56,9 @@ class ProcessPayments
     raise InvalidInputJson, 'missing field "payments"' unless json['payments'].is_a?(Array)
 
     json['payments'].each do |p|
-      p['amount'] = parse_amount(p['amount'])
-      raise InvalidInputJson, 'invalid field "amount"' unless p['amount'].positive?
+      raise InvalidInputJson, 'missing field "amount"' unless p['amount']
       raise InvalidInputJson, 'missing field "payee_firm_uuid"' unless p['payee_firm_uuid']
+      raise InvalidInputJson, 'same field "payee_firm_uuid"' if p['payee_firm_uuid'] == json['payer_firm_uuid']
       raise InvalidInputJson, 'missing field "description"' unless p['description']
     end
 
@@ -52,18 +66,24 @@ class ProcessPayments
   end
 
   def sufficient_payer_balance?
-    payer_firm.balance_cents > json['payments'].map { |p| p['amount'] }.sum
+    cached_firm(json['payer_firm_uuid']).balance_cents > json['payments'].map { |p| parse_amount(p['amount']) }.sum
   end
 
-  def payer_firm
-    @payer_firm ||= find_firm!(json['payer_firm_uuid'])
+  def extract_firm_uids
+    [json['payer_firm_uuid']] + json['payments'].map { |p| p['payee_firm_uuid'] }.uniq
   end
 
-  def find_firm!(uuid)
-    firm = Firm.find_by(uuid:)
-    # custom message for original exception for direct API use
-    raise ActiveRecord::RecordNotFound, "firm #{uuid} not found" unless firm
-    firm
+  def lock_and_cache_firms(uuids)
+    @firm_cache = {}
+    Firm.where(uuid: uuids).lock('FOR UPDATE NOWAIT').all.each do |f|
+      @firm_cache[f.uuid] = f
+    end
+  end
+
+  def cached_firm(uuid)
+    @firm_cache.fetch(uuid)
+  rescue KeyError
+    raise ActiveRecord::RecordNotFound, "firm #{uuid} not found"
   end
 
   # not using Money gem or such to keep surface small

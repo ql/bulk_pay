@@ -88,13 +88,87 @@ RSpec.describe ProcessPayments, type: :service do
       expect(lopez_payment.payee_firm_id).to eq('8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10')
     end
 
-    describe "when two firms send requests to pay each other" do
-      # it should not deadlock
+    describe "with concurrent requests" do
+      # this spec is intentionally left as a potentially flaky non-deterministic one - that's the price for catching failing invariants
+      it "doesnt corrupt ledger state and mostly works hehe" do
+        Firm.find_by(name: 'Pinecrest CPA Group').update(balance_cents: 1_000_000_000)
+        expect(Firm.pluck(:balance_cents).sum).to eq(1_000_000_000 + 200000 + 50000)
+        thread_number = 50
+
+        threads = []
+        results = []
+        thread_number.times do |number|
+          threads << Thread.new do
+            result = described_class.new(payload).call
+            results << result
+            puts "Thread ##{number}(#{Thread.current.object_id}) - balances update: #{result}"
+          end
+        end
+        threads.each(&:join)
+
+        expect(Firm.pluck(:balance_cents).sum).to eq(1_000_000_000 + 200000 + 50000)
+        expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(1_000_000_000 - (625000 + 580050 + 120075) * thread_number)
+        expect(results.all?).to be true
+      end
+
+      # this one reproduces deadlocks quite good, not sure if getting rid of them is in scope
+      it "doesnt suffer from deadlocks when payments are circular" do
+        payload['payments'][0]['amount'] = '100' # a lot of small payments to each other
+        payload['payments'][1]['amount'] = '100'
+        payload['payments'][2]['amount'] = '100'
+
+        payload2 = JSON.parse(File.read('./spec/fixtures/payload_1.json'))
+        payload2['payer_firm_uuid'] = '8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10'
+        payload2['payments'][2]['payee_firm_uuid'] = '3f1c9a2e-7b4d-4c1e-9a55-2d8e6f0b7c41'
+        payload2['payments'][0]['amount'] = '100' 
+        payload2['payments'][1]['amount'] = '100'
+        payload2['payments'][2]['amount'] = '100'
+
+        payload3 = JSON.parse(File.read('./spec/fixtures/payload_1.json'))
+        payload3['payer_firm_uuid'] = 'e5f18b3c-2a9d-4c07-8e6b-1d4a7f9c3b25'
+        payload3['payments'][0]['payee_firm_uuid'] = '3f1c9a2e-7b4d-4c1e-9a55-2d8e6f0b7c41'
+        payload3['payments'][0]['amount'] = '100'
+        payload3['payments'][1]['payee_firm_uuid'] = '3f1c9a2e-7b4d-4c1e-9a55-2d8e6f0b7c41'
+        payload3['payments'][1]['amount'] = '100'
+        payload3['payments'][2]['amount'] = '100'
+
+        Firm.update_all(balance_cents: 5000000)
+        thread_number = 10
+
+        threads = []
+        results = []
+        payloads = [payload, payload2, payload3]
+        thread_number.times do |number|
+          threads << Thread.new do
+            result = described_class.new(payloads[number % 3]).call
+            results << result
+            puts "Thread ##{number}(#{Thread.current.object_id}) - balances update: #{result}"
+          end
+        end
+        threads.each(&:join)
+
+        expect(Firm.pluck(:balance_cents).sum).to eq(5000000 * 3)
+        expect(results.all?).to be true
+      end
     end
 
     describe "when system error occurs in the middle of processing" do
-      # it should not leave partly modified rows
-      # it should raise exception
+      it "should not leave partly modified rows" do
+        modified_subject = described_class.new(payload)
+        def modified_subject.cached_firm(uuid)
+          raise RuntimeError, "oopsie!" if uuid == '8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10'
+          Firm.find_by(uuid:)
+        end
+
+        expect(Payment.count).to eq(0)
+        expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
+        expect { modified_subject.call }.to raise_exception(RuntimeError, 'oopsie!')
+        expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
+        expect(Payment.count).to eq(0)
+        expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(5000000)
+        expect(Firm.find_by(name: 'Lopez Bookkeeping').balance_cents).to eq(50000)
+        expect(Firm.find_by(name: 'Nair Tax Services').balance_cents).to eq(200000)
+      end
     end
   end
 end
