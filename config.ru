@@ -2,6 +2,7 @@
 
 require 'rack/app'
 require 'json'
+require './app/app.rb'
 
 class App < Rack::App
   desc 'Liveness probe etc'
@@ -15,7 +16,7 @@ class App < Rack::App
     if req.post?
       raw_body = req.body.read
       payload = JSON.parse(raw_body)
-      pp payload
+      processing_result = ProcessPayments.call(payload)
       [200, {"Content-Type" => "application/json"}, [{message: "received"}]]
     else
       [405, {"Content-Type" => "text/plain"}, ["Method Not Allowed"]]
