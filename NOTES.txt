@@ -1,0 +1,12 @@
+1. Naming 
+  "bulk pay" seems descriptive and obvious enough for anyone to understand (including AI)
+
+2. Technical stack
+
+  At 1 endpoint and 2 tables building full Rails app seems to be pure overhead. 
+  In order to build small clean solution focused on performance and transactional safety 
+  I'm choosing pure Rack app with minimal library surface which can be transplanted on existing Rails app easily, or used as a standalone microservice. Other alternatives might be Sinatra or Roda.
+
+3. Transactional safety
+
+4. Starting app - see README.txt
