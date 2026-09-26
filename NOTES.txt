@@ -11,7 +11,9 @@
   Testing with Rspec.
 
 3. Transactional safety
+  I decided to build atomic API - response 201 means all data was succesfully updated. That's achieved by using locks on all firms affected by same request with NOWAIT setting and incremental randomized retry. This way even if firms A and B will try to charge each other at the same time it won't immediately cause a deadlock. Worst case scenario would be them getting HTTP 503 as a signal to try again. 
+  I decided not to use any kind of async, as Option A - returning HTTP 201 after checking funds and delaying actual processing to background worker would create nasty race conditions, and Option B - implementing fully async API (upload - poll for results) will impose larger load on API consumer. Also that would be against task requirements.
 
-4. Intentionally not implemented: authorization
+4. Intentionally not implemented: authorization, monitoring
 
 4. Starting app - see README.txt

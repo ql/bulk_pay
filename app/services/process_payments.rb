@@ -1,9 +1,7 @@
 class ProcessPayments
   attr_accessor :json
 
-  def initialize(json)
-    @json = json
-  end
+  def initialize(json) = @json = json
 
   def call
     retries = 0
@@ -33,7 +31,7 @@ class ProcessPayments
   private
 
   def process_payment(payment)
-    payer_firm = cached_firm(json['payer_firm_uuid'])
+    payer_firm = cached_firm(payer_uuid)
     payee_firm = cached_firm(payment['payee_firm_uuid'])
 
     amount = parse_amount(payment['amount'])
@@ -52,26 +50,24 @@ class ProcessPayments
 
   # poor man's schema checker here
   def validate_and_prepare
-    raise InvalidInputJson, 'missing field "payer_firm_uuid"' unless json['payer_firm_uuid']
+    raise InvalidInputJson, 'missing field "payer_firm_uuid"' unless payer_uuid
     raise InvalidInputJson, 'missing field "payments"' unless json['payments'].is_a?(Array)
 
     json['payments'].each do |p|
       raise InvalidInputJson, 'missing field "amount"' unless p['amount']
       raise InvalidInputJson, 'missing field "payee_firm_uuid"' unless p['payee_firm_uuid']
-      raise InvalidInputJson, 'same field "payee_firm_uuid"' if p['payee_firm_uuid'] == json['payer_firm_uuid']
+      raise InvalidInputJson, 'same field "payee_firm_uuid"' if p['payee_firm_uuid'] == payer_uuid
       raise InvalidInputJson, 'missing field "description"' unless p['description']
     end
 
     true
   end
 
-  def sufficient_payer_balance?
-    cached_firm(json['payer_firm_uuid']).balance_cents > json['payments'].map { |p| parse_amount(p['amount']) }.sum
-  end
+  def sufficient_payer_balance? = cached_firm(payer_uuid).balance_cents > json['payments'].map { |p| parse_amount(p['amount']) }.sum
 
-  def extract_firm_uids
-    [json['payer_firm_uuid']] + json['payments'].map { |p| p['payee_firm_uuid'] }.uniq
-  end
+  def payer_uuid = json['payer_firm_uuid']
+
+  def extract_firm_uids = [payer_uuid] + json['payments'].map { |p| p['payee_firm_uuid'] }.uniq
 
   def lock_and_cache_firms(uuids)
     @firm_cache = {}
@@ -80,11 +76,7 @@ class ProcessPayments
     end
   end
 
-  def cached_firm(uuid)
-    @firm_cache.fetch(uuid)
-  rescue KeyError
-    raise ActiveRecord::RecordNotFound, "firm #{uuid} not found"
-  end
+  def cached_firm(uuid) = @firm_cache[uuid] || raise(ActiveRecord::RecordNotFound.new("firm #{uuid} not found"))
 
   # not using Money gem or such to keep surface small
   def parse_amount(dollars_amount)
@@ -104,7 +96,7 @@ class ProcessPayments
     when 2 # 9.99
       dollars * 100 + cents.to_i
     else
-      raise ArgumentError, "wrong amount format" if cents.size > 2
+      raise ArgumentError, "wrong amount format"
     end
   end
 end
