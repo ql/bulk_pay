@@ -21,17 +21,17 @@ RSpec.describe ProcessPayments, type: :service do
 
     describe "with garbage input" do
       let(:amount) { "some gibberish" }
-      it { expect { subject }.to raise_exception(ArgumentError, "wrong amount format") }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
     end
 
     describe "with mangled decimals" do
       let(:amount) { "100.gibberish" }
-      it { expect { subject }.to raise_exception(ArgumentError, "wrong amount format") }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
     end
 
     describe "with too much decimals" do
       let(:amount) { "100.3234234" }
-      it { expect { subject }.to raise_exception(ArgumentError, "wrong amount format") }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
     end
 
     describe "with trailing garbage" do
