@@ -3,6 +3,9 @@
 class ProcessPayments
   AMOUNT_FORMAT = /\A(\d+)(?:\.(\d{1,2}))?\z/
   UUID_FORMAT = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
+  MAX_PAYMENTS = 1000 # bounds lock hold time and insert statement size
+  LOCK_TIMEOUT = ENV.fetch('LOCK_TIMEOUT', '3s') # applies to each row lock separately
+  STATEMENT_TIMEOUT = ENV.fetch('STATEMENT_TIMEOUT', '5s') # caps total wait for all row locks
 
   attr_accessor :json
 
@@ -10,46 +13,69 @@ class ProcessPayments
 
   def call
     validate_and_prepare
-    uuids = extract_firm_uids
+
     ActiveRecord::Base.transaction(isolation: :read_committed) do
-      atomic_lock_and_cache_firms(uuids)
-      return false unless sufficient_payer_balance?
+      set_local_timeouts
+      firms = lock_firms
+      next false if firms[payer_uuid].balance_cents < total_amount
 
-      json['payments'].each { |p| process_payment(p) }
+      apply_balance_deltas(firms)
+      insert_payments(firms)
+      true
     end
-
-    true
-  rescue ActiveRecord::SerializationFailure, ActiveRecord::LockWaitTimeout => e
-    @retries ||= 0
-    if @retries < 3
-      @retries += 1
-      delay = rand * @retries
-      puts "Thread #{Thread.current.object_id} got #{e.class} failure, retrying in #{delay} s. (retry ##{@retries})"
-      sleep(delay)
-      retry
-    else
-      raise(App::ConcurrencyError, "unable to fullfill request, try again")
-    end
+  rescue ActiveRecord::LockWaitTimeout, ActiveRecord::QueryCanceled, ActiveRecord::Deadlocked
+    # whole transaction is rolled back, so it is safe for the client to retry
+    raise App::ConcurrencyError, 'unable to fulfill request, try again'
   end
 
   private
 
-  def process_payment(payment)
-    payer_firm = cached_firm(payer_uuid)
-    payee_firm = cached_firm(payment['payee_firm_uuid'])
+  # SET LOCAL resets on commit/rollback, so it never leaks to other requests on a pooled connection
+  # with_connection reuses the transaction's connection without leasing it to the thread for good
+  def set_local_timeouts
+    ActiveRecord::Base.with_connection do |connection|
+      connection.execute("SET LOCAL lock_timeout = #{connection.quote(LOCK_TIMEOUT)}")
+      connection.execute("SET LOCAL statement_timeout = #{connection.quote(STATEMENT_TIMEOUT)}")
+    end
+  end
 
-    amount = parse_amount(payment['amount'])
+  # this is the most important piece of whole concurrency thing:
+  # locking in id order means concurrent requests never deadlock each other, they just wait
+  def lock_firms
+    uuids = [payer_uuid] + json['payments'].map { |p| p['payee_firm_uuid'] }.uniq
+    firms = Firm.where(uuid: uuids).order(:id).lock.index_by(&:uuid)
 
-    payee_firm.balance_cents += amount
-    payer_firm.balance_cents -= amount
-    payee_firm.save!
-    payer_firm.save!
-    Payment.create!(
-      payer_firm:,
-      payee_firm:,
-      amount_cents: amount,
-      description: payment['description']
-    )
+    missing = uuids - firms.keys
+    raise ActiveRecord::RecordNotFound, "firm #{missing.first} not found" if missing.any?
+
+    firms
+  end
+
+  # rows are locked, so writing absolute values can't lose a concurrent update
+  def apply_balance_deltas(firms)
+    deltas = Hash.new(0)
+    json['payments'].zip(amounts) { |p, amount| deltas[p['payee_firm_uuid']] += amount }
+    deltas[payer_uuid] -= total_amount
+
+    deltas.each do |uuid, delta|
+      firm = firms.fetch(uuid)
+      firm.balance_cents += delta
+      firm.save!
+    end
+  end
+
+  def insert_payments(firms)
+    payer_id = firms.fetch(payer_uuid).id
+    rows = json['payments'].zip(amounts).map do |p, amount|
+      {
+        payer_firm_id: payer_id,
+        payee_firm_id: firms.fetch(p['payee_firm_uuid']).id,
+        amount_cents: amount,
+        description: p['description']
+      }
+    end
+
+    Payment.insert_all!(rows)
   end
 
   # poor man's schema checker here
@@ -59,6 +85,7 @@ class ProcessPayments
     raise App::InvalidInputJson, 'invalid field "payer_firm_uuid"' unless uuid?(payer_uuid)
     raise App::InvalidInputJson, 'missing field "payments"' unless json['payments'].is_a?(Array)
     raise App::InvalidInputJson, 'empty field "payments"' if json['payments'].empty?
+    raise App::InvalidInputJson, "too many payments, max #{MAX_PAYMENTS}" if json['payments'].size > MAX_PAYMENTS
 
     # uuids are case-insensitive, while firms are cached by lowercase uuid from db
     json['payer_firm_uuid'] = payer_uuid.downcase
@@ -74,27 +101,19 @@ class ProcessPayments
       raise App::InvalidInputJson, 'missing field "description"' unless p['description']
     end
 
+    # parsed before any lock is taken
+    @amounts = json['payments'].map { |p| parse_amount(p['amount']) }
+
     true
   end
 
-  def sufficient_payer_balance? = cached_firm(payer_uuid).balance_cents >= json['payments'].map { |p| parse_amount(p['amount']) }.sum
+  def amounts = @amounts
+
+  def total_amount = @total_amount ||= amounts.sum
 
   def payer_uuid = json['payer_firm_uuid']
 
   def uuid?(value) = value.is_a?(String) && UUID_FORMAT.match?(value)
-
-  def extract_firm_uids = [payer_uuid] + json['payments'].map { |p| p['payee_firm_uuid'] }.uniq
-
-  # this is the most important piece of whole concurrency thing
-  def atomic_lock_and_cache_firms(uuids)
-    @firm_cache = {}
-
-    Firm.where(uuid: uuids).lock('FOR UPDATE NOWAIT').all.each do |f|
-      @firm_cache[f.uuid] = f
-    end
-  end
-
-  def cached_firm(uuid) = @firm_cache[uuid] || raise(ActiveRecord::RecordNotFound.new("firm #{uuid} not found"))
 
   # not using Money gem or such to keep surface small
   # accepts only strings like "300", "5.5", "9.99" - floats are ambiguous for money

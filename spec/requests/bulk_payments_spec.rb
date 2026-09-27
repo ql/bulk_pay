@@ -106,6 +106,37 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       end
     end
 
+    context 'when amounts exceed 32-bit integer range' do
+      let(:payload) do
+        { 'payer_firm_uuid' => payer_uuid,
+          'payments' => [{ 'amount' => '30000000.00', 'payee_firm_uuid' => nair_uuid, 'description' => 'big one' }] }
+      end
+
+      before { set_balance(payer_uuid, 10_000_000_000) }
+
+      it 'moves the money' do
+        expect(response.status).to eq(201)
+        expect(balance(payer_uuid)).to eq(10_000_000_000 - 3_000_000_000)
+        expect(balance(nair_uuid)).to eq(200_000 + 3_000_000_000)
+        expect(Payment.sum(:amount_cents)).to eq(3_000_000_000)
+      end
+    end
+
+    context 'with the maximum number of payments' do
+      let(:payload) do
+        { 'payer_firm_uuid' => payer_uuid,
+          'payments' => Array.new(ProcessPayments::MAX_PAYMENTS) { |i|
+            { 'amount' => '1', 'payee_firm_uuid' => i.even? ? nair_uuid : lopez_uuid, 'description' => "p#{i}" }
+          } }
+      end
+
+      it 'accepts the batch' do
+        expect(response.status).to eq(201)
+        expect(Payment.count).to eq(ProcessPayments::MAX_PAYMENTS)
+        expect(balance(payer_uuid)).to eq(5_000_000 - ProcessPayments::MAX_PAYMENTS * 100)
+      end
+    end
+
     context 'when a payee starts with zero balance' do
       before { set_balance(lopez_uuid, 0) }
 
@@ -184,7 +215,8 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       'malformed payee uuid'      => ->(p) { p.tap { p['payments'][0]['payee_firm_uuid'] = 'dummy' } },
       'payer paying itself'       => ->(p) { p.tap { p['payments'][0]['payee_firm_uuid'] = p['payer_firm_uuid'] } },
       'payer paying itself (uppercase)' => ->(p) { p.tap { p['payments'][0]['payee_firm_uuid'] = p['payer_firm_uuid'].upcase } },
-      'missing description'       => ->(p) { p.tap { p['payments'][0].delete('description') } }
+      'missing description'       => ->(p) { p.tap { p['payments'][0].delete('description') } },
+      'too many payments'         => ->(p) { p.merge('payments' => p['payments'] * (ProcessPayments::MAX_PAYMENTS / 3 + 1)) }
     }
 
     invalid_bodies.each do |name, mutate|
@@ -226,6 +258,16 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       include_examples 'no side effects'
     end
 
+    context 'when a payee does not exist and the payer cannot cover the total' do
+      let(:body) { fixture('payload_non_existent_firm.json') }
+
+      before { set_balance(payer_uuid, 0) }
+
+      it 'reports the unknown firm rather than insufficient funds' do
+        expect(response.status).to eq(404)
+      end
+    end
+
     context 'when the payer does not exist' do
       let(:body) { payload.merge('payer_firm_uuid' => unknown_uuid) }
 
@@ -239,15 +281,19 @@ RSpec.describe 'POST /bulk_payments', type: :request do
   end
 
   describe '503 Service Unavailable' do
-    # holds a row lock from another connection, like a concurrent request on another instance would
-    def hold_lock_on(uuid)
+    # holds row locks from another connection, like a concurrent request on another instance would
+    def hold_locks_on(*uuids, then_lock: nil)
       locked = Queue.new
       release = Queue.new
       thread = Thread.new do
         ActiveRecord::Base.connection_pool.with_connection do
           Firm.transaction do
-            Firm.lock.find_by!(uuid:)
+            uuids.each { |uuid| Firm.lock.find_by!(uuid:) }
             locked << true
+            if then_lock
+              sleep 0.2 # let the request start waiting on our lock first
+              Firm.lock.find_by!(uuid: then_lock)
+            end
             release.pop
           end
         end
@@ -256,54 +302,129 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       [thread, release]
     end
 
-    before { allow_any_instance_of(ProcessPayments).to receive(:puts) }
+    def release_locks(holder, release)
+      release << true
+      holder.join
+    end
 
-    context 'when a firm stays locked through all retries' do
-      it 'gives up after 3 retries with 503 and changes nothing' do
-        holder, release = hold_lock_on(payer_uuid)
-        expect_any_instance_of(ProcessPayments).to receive(:sleep).exactly(3).times
+    def elapsed
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      yield
+      Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    end
 
+    context 'when the payer stays locked longer than lock_timeout' do
+      before { stub_const('ProcessPayments::LOCK_TIMEOUT', '100ms') }
+
+      it 'gives up with 503 and changes nothing' do
+        holder, release = hold_locks_on(payer_uuid)
         before_balances = balances
-        response = post(payload)
+        response = nil
 
+        expect(elapsed { response = post(payload) }).to be < 2
         expect(response.status).to eq(503)
         expect(response.body).to include('try again')
         expect(balances).to eq(before_balances)
         expect(Payment.count).to eq(0)
       ensure
-        release << true
-        holder.join
+        release_locks(holder, release)
       end
     end
 
-    context 'when the lock is released between retries' do
-      it 'succeeds on retry with 201' do
-        holder, release = hold_lock_on(payer_uuid)
-        allow_any_instance_of(ProcessPayments).to receive(:sleep) do
-          release << true
-          holder.join
-        end
+    context 'when a payee stays locked longer than lock_timeout' do
+      before { stub_const('ProcessPayments::LOCK_TIMEOUT', '100ms') }
 
-        response = post(payload)
+      it 'gives up with 503 and changes nothing' do
+        holder, release = hold_locks_on(nair_uuid)
+        before_balances = balances
 
-        expect(response.status).to eq(201)
-        expect(balance(payer_uuid)).to eq(5_000_000 - payload_1_total)
-        expect(Payment.count).to eq(3)
+        expect(post(payload).status).to eq(503)
+        expect(balances).to eq(before_balances)
+        expect(Payment.count).to eq(0)
       ensure
-        release << true
-        holder.join
+        release_locks(holder, release)
+      end
+    end
+
+    context 'when each lock is within lock_timeout but the total wait exceeds statement_timeout' do
+      before do
+        stub_const('ProcessPayments::LOCK_TIMEOUT', '10s')
+        stub_const('ProcessPayments::STATEMENT_TIMEOUT', '200ms')
+      end
+
+      it 'gives up with 503 without waiting for lock_timeout' do
+        holder, release = hold_locks_on(payer_uuid)
+        response = nil
+
+        expect(elapsed { response = post(payload) }).to be < 2
+        expect(response.status).to eq(503)
+        expect(Payment.count).to eq(0)
+      ensure
+        release_locks(holder, release)
+      end
+    end
+
+    context 'when another writer locks firms in the opposite order' do
+      it 'is picked as deadlock victim, responds 503 and changes nothing' do
+        # holder locks Lopez (id 2) then Pinecrest (id 1); request locks 1 then 2
+        holder, release = hold_locks_on(lopez_uuid, then_lock: payer_uuid)
+        before_balances = balances
+
+        expect(post(payload).status).to eq(503)
+        expect(balances).to eq(before_balances)
+        expect(Payment.count).to eq(0)
+      ensure
+        release_locks(holder, release)
+      end
+    end
+
+    context 'when the connection pool is exhausted' do
+      before { allow(ActiveRecord::Base).to receive(:transaction).and_raise(ActiveRecord::ConnectionTimeoutError) }
+
+      it 'responds with 503' do
+        expect(post(payload).status).to eq(503)
       end
     end
   end
 
-  describe '500 Internal Server Error' do
-    it 'rolls back everything when processing fails midway' do
-      calls = 0
-      allow(Payment).to receive(:create!).and_wrap_original do |original, *args, **kwargs|
-        calls += 1
-        raise 'boom' if calls == 2
-        original.call(*args, **kwargs)
+  describe 'waiting for locks' do
+    it 'waits for a lock released within lock_timeout and responds 201' do
+      holder_locked = Queue.new
+      holder = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          Firm.transaction do
+            Firm.lock.find_by!(uuid: payer_uuid)
+            holder_locked << true
+            sleep 0.3
+          end
+        end
       end
+      holder_locked.pop
+
+      response = post(payload)
+      holder.join
+
+      expect(response.status).to eq(201)
+      expect(balance(payer_uuid)).to eq(5_000_000 - payload_1_total)
+      expect(Payment.count).to eq(3)
+    end
+
+    it 'does not leak lock and statement timeouts to the connection' do
+      post(payload)
+      post(fixture('payload_not_enough_balance.json'))
+
+      # reset_val is the session default, so a leak from any earlier spec on this connection shows up too
+      leaked = ActiveRecord::Base.connection.select_rows(<<~SQL)
+        SELECT name, setting, reset_val FROM pg_settings
+        WHERE name IN ('lock_timeout', 'statement_timeout') AND setting <> reset_val
+      SQL
+      expect(leaked).to be_empty
+    end
+  end
+
+  describe '500 Internal Server Error' do
+    it 'rolls back balance updates when inserting payments fails' do
+      allow(Payment).to receive(:insert_all!).and_raise('boom')
 
       before_balances = balances
       response = post(payload)
@@ -320,11 +441,6 @@ RSpec.describe 'POST /bulk_payments', type: :request do
     # the main thread holds one connection, keep the rest of the default pool (5) for workers
     let(:thread_count) { 4 }
 
-    before do
-      allow_any_instance_of(ProcessPayments).to receive(:puts)
-      allow_any_instance_of(ProcessPayments).to receive(:sleep) { Kernel.sleep(rand * 0.05) }
-    end
-
     def post_concurrently(payloads)
       payloads.map { |p| Thread.new { post(p).status } }.map(&:value)
     end
@@ -334,13 +450,10 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       total_before = Firm.sum(:balance_cents)
 
       statuses = post_concurrently(Array.new(thread_count) { fixture('payload_1.json') })
-      succeeded = statuses.count(201)
 
-      expect(statuses - [201, 422, 503]).to be_empty
-      expect(succeeded).to be_between(1, 2)
-      expect(succeeded).to eq(2) if statuses.include?(422) # 422 only once the balance is actually spent
-      expect(balance(payer_uuid)).to eq(payload_1_total * (2 - succeeded))
-      expect(Payment.count).to eq(3 * succeeded)
+      expect(statuses.sort).to eq([201, 201, 422, 422])
+      expect(balance(payer_uuid)).to eq(0)
+      expect(Payment.count).to eq(6)
       expect(Firm.sum(:balance_cents)).to eq(total_before)
     end
 
@@ -349,12 +462,13 @@ RSpec.describe 'POST /bulk_payments', type: :request do
                  'payments' => [{ 'amount' => '100', 'payee_firm_uuid' => lopez_uuid, 'description' => 'a->b' }] }
       b_to_a = { 'payer_firm_uuid' => lopez_uuid,
                  'payments' => [{ 'amount' => '100', 'payee_firm_uuid' => payer_uuid, 'description' => 'b->a' }] }
+      before_balances = balances
 
       statuses = post_concurrently(Array.new(thread_count) { |i| i.even? ? a_to_b : b_to_a })
 
-      expect(statuses - [201, 503]).to be_empty
-      expect(Firm.sum(:balance_cents)).to eq(initial_total)
-      expect(Payment.count).to eq(statuses.count(201))
+      expect(statuses).to all(eq(201))
+      expect(balances).to eq(before_balances) # equal amounts both ways cancel out
+      expect(Payment.count).to eq(thread_count)
     end
   end
 end

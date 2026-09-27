@@ -20,7 +20,7 @@ class App
     [400, {"content-type" => "text/plain"}, ["Invalid JSON submitted: #{e.message}"]]
   rescue ActiveRecord::RecordNotFound => e
     [404, {"content-type" => "text/plain"}, ["Not found: #{e.message}"]]
-  rescue App::ConcurrencyError => e
+  rescue App::ConcurrencyError, ActiveRecord::ConnectionTimeoutError => e
     [503, {"content-type" => "text/plain"}, ["Error: #{e.message}"]]
   rescue => e
     [500, {"content-type" => "text/plain"}, ["Service error"]]

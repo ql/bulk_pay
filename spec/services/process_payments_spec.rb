@@ -234,7 +234,7 @@ RSpec.describe ProcessPayments, type: :service do
         expect(results.all?).to be true
       end
 
-      # this one reproduces deadlocks quite good, not sure if getting rid of them is in scope
+      # firms are locked in id order, so circular payments wait for each other instead of deadlocking
       it "doesnt suffer from deadlocks when payments are circular" do
         payload['payments'][0]['amount'] = '100' # a lot of small payments to each other
         payload['payments'][1]['amount'] = '100'
@@ -277,15 +277,12 @@ RSpec.describe ProcessPayments, type: :service do
 
     describe "when system error occurs in the middle of processing" do
       it "should not leave partly modified rows" do
-        modified_subject = described_class.new(payload)
-        def modified_subject.cached_firm(uuid)
-          raise RuntimeError, "oopsie!" if uuid == '8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10'
-          Firm.find_by(uuid:)
-        end
+        # balances are already updated by the time payments are inserted
+        allow(Payment).to receive(:insert_all!).and_raise(RuntimeError, "oopsie!")
 
         expect(Payment.count).to eq(0)
         expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
-        expect { modified_subject.call }.to raise_exception(RuntimeError, 'oopsie!')
+        expect { subject }.to raise_exception(RuntimeError, 'oopsie!')
         expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
         expect(Payment.count).to eq(0)
         expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(5000000)
