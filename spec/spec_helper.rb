@@ -21,4 +21,4 @@ def seed_data
   ActiveRecord::Base.connection.execute(File.read("./db/seeds/seed.sql"))
 end
 
-require './app/app.rb'
+require './app.rb'

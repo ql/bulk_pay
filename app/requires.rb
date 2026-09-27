@@ -1,10 +1,12 @@
 require 'active_record'
+require 'json'
 
 env = ENV.fetch('APP_ENV', 'development')
 content = File.read('config/database.yml')
 evaluated_yaml = ERB.new(content).result
 db_config       = YAML::load(evaluated_yaml, aliases: true)[env]
 ActiveRecord::Base.establish_connection(db_config)
+ActiveRecord::Base.logger = Logger.new(STDOUT)
 
 require './app/models/firm.rb'
 require './app/models/payment.rb'
