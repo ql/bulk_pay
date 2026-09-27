@@ -41,6 +41,8 @@
   still succeeds after the original spent the balance. Same key with a different request (compared by fingerprint of
   the normalized request) is 422. Inserting the key row before locking firms would take a FK KEY SHARE lock on the
   payer out of id order and could deadlock A-pays-B against B-pays-A.
+  Processing has two phases: validation (ProcessPayments::Request - parses, normalizes, never touches db) and
+  charging (ProcessPayments::Charge - the transaction above).
 
 5. Connections and deployment
   Plain Rack has no Rails executor, so App returns connections to the pool after each request itself.

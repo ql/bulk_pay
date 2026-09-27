@@ -126,15 +126,15 @@ RSpec.describe 'POST /bulk_payments', type: :request do
     context 'with the maximum number of payments' do
       let(:payload) do
         { 'payer_firm_uuid' => payer_uuid,
-          'payments' => Array.new(ProcessPayments::MAX_PAYMENTS) { |i|
+          'payments' => Array.new(ProcessPayments::Request::MAX_PAYMENTS) { |i|
             { 'amount' => '1', 'payee_firm_uuid' => i.even? ? nair_uuid : lopez_uuid, 'description' => "p#{i}" }
           } }
       end
 
       it 'accepts the batch' do
         expect(response.status).to eq(201)
-        expect(Payment.count).to eq(ProcessPayments::MAX_PAYMENTS)
-        expect(balance(payer_uuid)).to eq(5_000_000 - ProcessPayments::MAX_PAYMENTS * 100)
+        expect(Payment.count).to eq(ProcessPayments::Request::MAX_PAYMENTS)
+        expect(balance(payer_uuid)).to eq(5_000_000 - ProcessPayments::Request::MAX_PAYMENTS * 100)
       end
     end
 
@@ -150,9 +150,9 @@ RSpec.describe 'POST /bulk_payments', type: :request do
     context 'with the largest valid request' do
       let(:payload) do
         { 'payer_firm_uuid' => payer_uuid,
-          'payments' => Array.new(ProcessPayments::MAX_PAYMENTS) { |i|
+          'payments' => Array.new(ProcessPayments::Request::MAX_PAYMENTS) { |i|
             { 'amount' => '1.00', 'payee_firm_uuid' => i.even? ? nair_uuid : lopez_uuid,
-              'description' => 'd' * ProcessPayments::MAX_DESCRIPTION_LENGTH }
+              'description' => 'd' * ProcessPayments::Request::MAX_DESCRIPTION_LENGTH }
           } }
       end
 
@@ -241,8 +241,8 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       'payer paying itself (uppercase)' => ->(p) { p.tap { p['payments'][0]['payee_firm_uuid'] = p['payer_firm_uuid'].upcase } },
       'missing description'       => ->(p) { p.tap { p['payments'][0].delete('description') } },
       'non-string description'    => ->(p) { p.tap { p['payments'][0]['description'] = { 'x' => [1, 2] } } },
-      'too long description'      => ->(p) { p.tap { p['payments'][0]['description'] = 'a' * (ProcessPayments::MAX_DESCRIPTION_LENGTH + 1) } },
-      'too many payments'         => ->(p) { p.merge('payments' => p['payments'] * (ProcessPayments::MAX_PAYMENTS / 3 + 1)) }
+      'too long description'      => ->(p) { p.tap { p['payments'][0]['description'] = 'a' * (ProcessPayments::Request::MAX_DESCRIPTION_LENGTH + 1) } },
+      'too many payments'         => ->(p) { p.merge('payments' => p['payments'] * (ProcessPayments::Request::MAX_PAYMENTS / 3 + 1)) }
     }
 
     invalid_bodies.each do |name, mutate|
@@ -340,7 +340,7 @@ RSpec.describe 'POST /bulk_payments', type: :request do
     end
 
     context 'when the payer stays locked longer than lock_timeout' do
-      before { stub_const('ProcessPayments::LOCK_TIMEOUT', '100ms') }
+      before { stub_const('ProcessPayments::Charge::LOCK_TIMEOUT', '100ms') }
 
       it 'gives up with 503 and changes nothing' do
         holder, release = hold_locks_on(payer_uuid)
@@ -358,7 +358,7 @@ RSpec.describe 'POST /bulk_payments', type: :request do
     end
 
     context 'when a payee stays locked longer than lock_timeout' do
-      before { stub_const('ProcessPayments::LOCK_TIMEOUT', '100ms') }
+      before { stub_const('ProcessPayments::Charge::LOCK_TIMEOUT', '100ms') }
 
       it 'gives up with 503 and changes nothing' do
         holder, release = hold_locks_on(nair_uuid)
@@ -374,8 +374,8 @@ RSpec.describe 'POST /bulk_payments', type: :request do
 
     context 'when each lock is within lock_timeout but the total wait exceeds statement_timeout' do
       before do
-        stub_const('ProcessPayments::LOCK_TIMEOUT', '10s')
-        stub_const('ProcessPayments::STATEMENT_TIMEOUT', '200ms')
+        stub_const('ProcessPayments::Charge::LOCK_TIMEOUT', '10s')
+        stub_const('ProcessPayments::Charge::STATEMENT_TIMEOUT', '200ms')
       end
 
       it 'gives up with 503 without waiting for lock_timeout' do
@@ -591,7 +591,7 @@ RSpec.describe 'POST /bulk_payments', type: :request do
     end
 
     it 'does not store a request that failed on a lock, so a retry goes through' do
-      stub_const('ProcessPayments::LOCK_TIMEOUT', '100ms')
+      stub_const('ProcessPayments::Charge::LOCK_TIMEOUT', '100ms')
       holder_locked = Queue.new
       release = Queue.new
       holder = Thread.new do
