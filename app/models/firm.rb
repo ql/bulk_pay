@@ -5,4 +5,5 @@ class Firm < ActiveRecord::Base
 
   has_many :sent_payments, class_name: 'Payment', foreign_key: :payer_firm_id
   has_many :received_payments, class_name: 'Payment', foreign_key: :payee_firm_id
+  has_many :payment_batches, foreign_key: :payer_firm_id
 end

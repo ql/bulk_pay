@@ -3,6 +3,7 @@ require 'erb'
 require 'yaml'
 require 'json'
 require 'rack'
+require 'digest'
 
 env = ENV.fetch('APP_ENV', 'development')
 content = File.read('config/database.yml')
@@ -12,6 +13,7 @@ ActiveRecord::Base.establish_connection(db_config)
 #ActiveRecord::Base.logger = Logger.new(STDOUT)
 
 require './app/models/firm.rb'
+require './app/models/payment_batch.rb'
 require './app/models/payment.rb'
 require './app/services/process_payments.rb'
 require './app/exceptions.rb'

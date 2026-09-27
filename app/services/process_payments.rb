@@ -1,16 +1,18 @@
-# this might be split into 1) validator 2) payment processor 3) transaction handler or smth
-# however it's not yet viable while it contains only 100 lines - better to keep all in one place for now
 class ProcessPayments
   AMOUNT_FORMAT = /\A(\d+)(?:\.(\d{1,2}))?\z/
   UUID_FORMAT = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
+  IDEMPOTENCY_KEY_FORMAT = /\A[\x21-\x7E]{1,255}\z/
   MAX_DESCRIPTION_LENGTH = 500
   MAX_PAYMENTS = 1000 # bounds lock hold time and insert statement size
   LOCK_TIMEOUT = ENV.fetch('LOCK_TIMEOUT', '3s') # applies to each row lock separately
   STATEMENT_TIMEOUT = ENV.fetch('STATEMENT_TIMEOUT', '5s') # caps total wait for all row locks
 
-  attr_reader :json, :amounts
+  attr_reader :json, :amounts, :idempotency_key
 
-  def initialize(json) = @json = json
+  def initialize(json, idempotency_key:)
+    @json = json
+    @idempotency_key = idempotency_key
+  end
 
   def call
     validate_and_prepare
@@ -18,11 +20,19 @@ class ProcessPayments
     ActiveRecord::Base.transaction(isolation: :read_committed) do
       set_local_timeouts
       firms = lock_firms
-      next false if firms[payer_uuid].balance_cents < amounts.sum
+      # all requests of a payer serialize on its row lock, so no duplicate can commit between lookup and insert
+      previous = previous_batch(firms)
+      if previous
+        raise App::IdempotencyKeyReused, 'Idempotency-Key was already used for a different request' unless previous.request_hash == request_hash
+        next :replayed
+      end
 
+      next :insufficient_balance if firms[payer_uuid].balance_cents < amounts.sum
+
+      payment_batch = record_batch(firms)
       apply_balance_deltas(firms)
-      insert_payments(firms)
-      true
+      insert_payments(firms, payment_batch)
+      :created
     end
   rescue ActiveRecord::LockWaitTimeout, ActiveRecord::QueryCanceled, ActiveRecord::Deadlocked
     raise App::ConcurrencyError, 'unable to fulfill request, try again'
@@ -49,6 +59,19 @@ class ProcessPayments
     firms
   end
 
+  def payer_id(firms) = firms.fetch(payer_uuid).id
+
+  def previous_batch(firms) = PaymentBatch.find_by(payer_firm_id: payer_id(firms), idempotency_key:)
+
+  def record_batch(firms) = PaymentBatch.create!(payer_firm_id: payer_id(firms), idempotency_key:, request_hash:)
+
+  def request_hash
+    @request_hash ||= Digest::SHA256.hexdigest(JSON.generate([
+      payer_uuid,
+      json['payments'].zip(amounts).map { |p, amount| [p['payee_firm_uuid'], amount, p['description']] }
+    ]))
+  end
+
   # rows are locked, so writing absolute values can't lose a concurrent update
   def apply_balance_deltas(firms)
     deltas = Hash.new(0)
@@ -62,11 +85,11 @@ class ProcessPayments
     end
   end
 
-  def insert_payments(firms)
-    payer_id = firms.fetch(payer_uuid).id
+  def insert_payments(firms, payment_batch)
     rows = json['payments'].zip(amounts).map do |p, amount|
       {
-        payer_firm_id: payer_id,
+        payment_batch_id: payment_batch.id,
+        payer_firm_id: payer_id(firms),
         payee_firm_id: firms.fetch(p['payee_firm_uuid']).id,
         amount_cents: amount,
         description: p['description']
@@ -78,6 +101,8 @@ class ProcessPayments
 
   # poor man's schema checker here
   def validate_and_prepare
+    raise App::InvalidInputJson, 'missing header "Idempotency-Key"' unless idempotency_key
+    raise App::InvalidInputJson, 'invalid header "Idempotency-Key"' unless IDEMPOTENCY_KEY_FORMAT.match?(idempotency_key)
     raise App::InvalidInputJson, 'request body must be a JSON object' unless json.is_a?(Hash)
     raise App::InvalidInputJson, 'missing field "payer_firm_uuid"' unless payer_uuid
     raise App::InvalidInputJson, 'invalid field "payer_firm_uuid"' unless uuid?(payer_uuid)

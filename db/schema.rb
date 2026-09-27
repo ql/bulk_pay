@@ -22,19 +22,32 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
     t.check_constraint "balance_cents >= 0", name: "non_negative_balance"
   end
 
+  create_table "payment_batches", force: :cascade do |t|
+    t.bigint "payer_firm_id", null: false
+    t.string "idempotency_key", limit: 255, null: false
+    t.string "request_hash", limit: 64, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["payer_firm_id", "idempotency_key"], name: "index_payment_batches_on_payer_firm_id_and_idempotency_key", unique: true
+  end
+
   create_table "payments", force: :cascade do |t|
     t.bigint "payer_firm_id", null: false
     t.bigint "payee_firm_id", null: false
+    t.bigint "payment_batch_id", null: false
     t.bigint "amount_cents", null: false
     t.text "description", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["payee_firm_id"], name: "index_payments_on_payee_firm_id"
     t.index ["payer_firm_id"], name: "index_payments_on_payer_firm_id"
+    t.index ["payment_batch_id"], name: "index_payments_on_payment_batch_id"
     t.check_constraint "amount_cents > 0", name: "positive_amount"
     t.check_constraint "payee_firm_id <> payer_firm_id", name: "no_self_payments"
   end
 
+  add_foreign_key "payment_batches", "firms", column: "payer_firm_id"
   add_foreign_key "payments", "firms", column: "payee_firm_id"
   add_foreign_key "payments", "firms", column: "payer_firm_id"
+  add_foreign_key "payments", "payment_batches"
 end

@@ -6,6 +6,7 @@ RSpec.describe Payment, type: :model do
     described_class.new(
       payer_firm_id: 1,
       payee_firm_id: 2,
+      payment_batch_id: 1,
       amount_cents: 10000,
       description: 'payment 1', 
     )
@@ -36,9 +37,10 @@ RSpec.describe Payment, type: :model do
   end
 
   describe 'DB validations' do
-    before do 
+    before do
       seed_data
-      subject.save
+      subject.payment_batch = PaymentBatch.create!(payer_firm_id: 1, idempotency_key: 'key', request_hash: 'hash')
+      subject.save!
     end
 
     it 'prevent negative amounts' do
@@ -51,6 +53,10 @@ RSpec.describe Payment, type: :model do
 
     it 'requires description' do
       expect { described_class.update_all(description: nil) }.to raise_exception(ActiveRecord::NotNullViolation)
+    end
+
+    it 'requires bulk payment' do
+      expect { described_class.update_all(payment_batch_id: nil) }.to raise_exception(ActiveRecord::NotNullViolation)
     end
 
     it 'requires both firms' do

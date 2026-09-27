@@ -22,8 +22,9 @@ RSpec.describe 'POST /bulk_payments', type: :request do
   def fixture(name) = JSON.parse(File.read("./spec/fixtures/#{name}"))
 
   # a request blocked on a row lock would otherwise hang the suite instead of failing it
-  def post(body, path: '/bulk_payments')
-    Timeout.timeout(10) { client.post(path, input: body.is_a?(String) ? body : body.to_json) }
+  def post(body, path: '/bulk_payments', key: SecureRandom.uuid)
+    headers = key ? { 'HTTP_IDEMPOTENCY_KEY' => key } : {}
+    Timeout.timeout(10) { client.post(path, input: body.is_a?(String) ? body : body.to_json, **headers) }
   end
 
   def balance(uuid) = Firm.find_by!(uuid:).balance_cents
@@ -476,6 +477,151 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       post(payload.merge('payments' => []))
       post(fixture('payload_not_enough_balance.json'))
       post(fixture('payload_non_existent_firm.json'))
+    end
+  end
+
+  describe 'idempotency' do
+    let(:key) { SecureRandom.uuid }
+
+    def snapshot = [balances, Payment.count, PaymentBatch.count]
+
+    context 'without Idempotency-Key header' do
+      subject(:response) { post(payload, key: nil) }
+
+      it 'responds with 400' do
+        expect(response.status).to eq(400)
+        expect(response.body).to include('missing header "Idempotency-Key"')
+      end
+
+      include_examples 'no side effects'
+    end
+
+    { 'empty' => '', 'containing spaces' => 'a b', 'longer than 255 chars' => 'k' * 256 }.each do |name, bad_key|
+      context "with #{name} Idempotency-Key" do
+        subject(:response) { post(payload, key: bad_key) }
+
+        it 'responds with 400' do
+          expect(response.status).to eq(400)
+          expect(response.body).to include('invalid header "Idempotency-Key"')
+        end
+
+        include_examples 'no side effects'
+      end
+    end
+
+    it 'records the request and attributes all its payments to it' do
+      expect(post(payload, key:).status).to eq(201)
+
+      payment_batch = PaymentBatch.sole
+      expect(payment_batch.idempotency_key).to eq(key)
+      expect(payment_batch.payer_firm.uuid).to eq(payer_uuid)
+      expect(Payment.pluck(:payment_batch_id).uniq).to eq([payment_batch.id])
+    end
+
+    it 'replays a repeated request with 201 without paying again' do
+      first = post(payload, key:)
+      after_first = snapshot
+      second = post(payload, key:)
+
+      expect([first.status, second.status]).to eq([201, 201])
+      expect(first.headers['idempotent-replayed']).to be_nil
+      expect(second.headers['idempotent-replayed']).to eq('true')
+      expect(snapshot).to eq(after_first)
+      expect(balance(payer_uuid)).to eq(5_000_000 - payload_1_total)
+    end
+
+    it 'replays even after the payer balance is spent' do
+      set_balance(payer_uuid, payload_1_total)
+
+      expect(post(payload, key:).status).to eq(201)
+      expect(balance(payer_uuid)).to eq(0)
+      expect(post(payload, key:).status).to eq(201)
+    end
+
+    it 'treats the same request in a different JSON spelling as a replay' do
+      post(payload, key:)
+      respelled = {
+        'payments' => payload['payments'].map { |p| p.merge('payee_firm_uuid' => p['payee_firm_uuid'].upcase).to_a.reverse.to_h },
+        'payer_firm_uuid' => payer_uuid.upcase
+      }
+      respelled['payments'][1]['amount'] = '5800.50'
+
+      response = post(JSON.pretty_generate(respelled), key:)
+
+      expect(response.status).to eq(201)
+      expect(response.headers['idempotent-replayed']).to eq('true')
+      expect(Payment.count).to eq(3)
+    end
+
+    it 'rejects the same key with a different request' do
+      post(payload, key:)
+      after_first = snapshot
+      changed = payload.tap { |p| p['payments'][0]['amount'] = '1' }
+
+      response = post(changed, key:)
+
+      expect(response.status).to eq(422)
+      expect(response.body).to include('Idempotency-Key was already used for a different request')
+      expect(snapshot).to eq(after_first)
+    end
+
+    it 'scopes keys to the payer' do
+      nair_pays = { 'payer_firm_uuid' => nair_uuid,
+                    'payments' => [{ 'amount' => '10', 'payee_firm_uuid' => lopez_uuid, 'description' => 'x' }] }
+
+      expect(post(payload, key:).status).to eq(201)
+      response = post(nair_pays, key:)
+
+      expect(response.status).to eq(201)
+      expect(response.headers['idempotent-replayed']).to be_nil
+      expect(PaymentBatch.count).to eq(2)
+    end
+
+    it 'does not store a denied request, so a retry after top-up goes through' do
+      set_balance(payer_uuid, payload_1_total - 1)
+      expect(post(payload, key:).status).to eq(422)
+      expect(PaymentBatch.count).to eq(0)
+
+      set_balance(payer_uuid, payload_1_total)
+      response = post(payload, key:)
+
+      expect(response.status).to eq(201)
+      expect(response.headers['idempotent-replayed']).to be_nil
+      expect(balance(payer_uuid)).to eq(0)
+    end
+
+    it 'does not store a request that failed on a lock, so a retry goes through' do
+      stub_const('ProcessPayments::LOCK_TIMEOUT', '100ms')
+      holder_locked = Queue.new
+      release = Queue.new
+      holder = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          Firm.transaction do
+            Firm.lock.find_by!(uuid: payer_uuid)
+            holder_locked << true
+            release.pop
+          end
+        end
+      end
+      holder_locked.pop
+
+      expect(post(payload, key:).status).to eq(503)
+      release << true
+      holder.join
+
+      expect(PaymentBatch.count).to eq(0)
+      expect(post(payload, key:).status).to eq(201)
+      expect(Payment.count).to eq(3)
+    end
+
+    it 'pays once when the same request arrives concurrently' do
+      responses = Array.new(4) { Thread.new { post(fixture('payload_1.json'), key:) } }.map(&:value)
+
+      expect(responses.map(&:status)).to all(eq(201))
+      expect(responses.count { |r| r.headers['idempotent-replayed'] == 'true' }).to eq(3)
+      expect(PaymentBatch.count).to eq(1)
+      expect(Payment.count).to eq(3)
+      expect(balance(payer_uuid)).to eq(5_000_000 - payload_1_total)
     end
   end
 

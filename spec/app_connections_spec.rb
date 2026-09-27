@@ -20,14 +20,14 @@ RSpec.describe App, 'connection handling' do
     pool.reap
   end
 
-  def post = App.call(Rack::MockRequest.env_for('/bulk_payments', method: 'POST', input: payload))
+  def post = App.call(Rack::MockRequest.env_for('/bulk_payments', method: 'POST', input: payload, 'HTTP_IDEMPOTENCY_KEY' => SecureRandom.uuid))
 
   it 'lease_connection pins a connection to the thread on its own' do
     expect(holds_connection_after { lease_connection }).to be_truthy
   end
 
   it 'returns a leased connection to the pool after the request' do
-    allow_any_instance_of(ProcessPayments).to receive(:call) { lease_connection && true }
+    allow_any_instance_of(ProcessPayments).to receive(:call) { lease_connection && :created }
 
     expect(holds_connection_after { expect(post[0]).to eq(201) }).to be_falsey
   end

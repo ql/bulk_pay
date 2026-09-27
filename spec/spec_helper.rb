@@ -12,6 +12,7 @@ Rake::Task["db:reset"].invoke
 RSpec.configure do |config|
   config.around(:each) do |example|
     Payment.delete_all
+    PaymentBatch.delete_all
     Firm.delete_all
     example.run
   end

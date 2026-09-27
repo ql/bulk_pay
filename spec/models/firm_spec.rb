@@ -64,7 +64,8 @@ RSpec.describe Firm, type: :model do
     it 'separates sent and received payments' do
       payer = described_class.find_by(name: 'Pinecrest CPA Group')
       payee = described_class.find_by(name: 'Lopez Bookkeeping')
-      payment = Payment.create!(payer_firm: payer, payee_firm: payee, amount_cents: 100, description: 'test')
+      payment_batch = PaymentBatch.create!(payer_firm: payer, idempotency_key: 'key', request_hash: 'hash')
+      payment = Payment.create!(payer_firm: payer, payee_firm: payee, payment_batch:, amount_cents: 100, description: 'test')
 
       expect(payer.sent_payments).to eq([payment])
       expect(payer.received_payments).to be_empty

@@ -30,7 +30,19 @@
   DB constraints (non-negative balance, positive amount, no self payments, FKs) are the last line of defence.
   I decided not to use any kind of async, as Option A - returning HTTP 201 after checking funds and delaying actual processing to background worker would create nasty race conditions, and Option B - implementing fully async API (upload - poll for results) will impose larger load on API consumer. Also that would be against task requirements.
 
-4. Connections and deployment
+4. Idempotency
+  Requests are not restricted by content - a firm may legitimately send the very same batch twice (monthly fees),
+  so only the client knows if a request is a retry. It sends a required Idempotency-Key header, keys are unique per
+  payer firm. Every successful request is stored in payment_batches and owns its payments; failed ones (400/404/422/503)
+  are not stored, so retrying them with the same key is processed normally - e.g. after topping up the balance.
+  Repeated key is looked up after the payer row is locked: all requests of a payer serialize on that lock, so a
+  duplicate arriving while the original is still running waits for it and then gets replayed - 201 with
+  Idempotent-Replayed header, nothing is charged again. Replay check goes before the balance check, so a replay
+  still succeeds after the original spent the balance. Same key with a different request (compared by fingerprint of
+  the normalized request) is 422. Inserting the key row before locking firms would take a FK KEY SHARE lock on the
+  payer out of id order and could deadlock A-pays-B against B-pays-A.
+
+5. Connections and deployment
   Plain Rack has no Rails executor, so App returns connections to the pool after each request itself.
   Puma threads and db pool size come from the same MAX_THREADS. Every puma worker has its own pool, so
   instances * WEB_CONCURRENCY * MAX_THREADS must stay below postgres max_connections - at scale that means PgBouncer
@@ -40,6 +52,6 @@
   (client_max_body_size) or an auth proxy. The largest valid request (1000 payments with 500 char descriptions)
   is about 600KB, so 1MB limit there is enough.
 
-5. Intentionally not implemented: authorization, monitoring
+6. Intentionally not implemented: authorization, monitoring
 
-6. Starting app - see README.txt
+7. Starting app - see README.txt

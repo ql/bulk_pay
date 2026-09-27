@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 RSpec.describe ProcessPayments, type: :service do
-  subject { described_class.new(payload).call }
+  subject { described_class.new(payload, idempotency_key: SecureRandom.uuid).call }
 
   let(:base_payload) { JSON.parse(File.read('./spec/fixtures/payload_1.json')) }
   let(:payload) { base_payload }
@@ -65,7 +65,7 @@ RSpec.describe ProcessPayments, type: :service do
     end
 
     it "should match firms case-insensitively" do
-      expect(subject).to be true
+      expect(subject).to eq(:created)
     end
   end
 
@@ -78,7 +78,7 @@ RSpec.describe ProcessPayments, type: :service do
   end
 
   describe "amounts" do
-    subject { described_class.new(payload).send(:parse_amount, amount) }
+    subject { described_class.new(payload, idempotency_key: SecureRandom.uuid).send(:parse_amount, amount) }
 
     describe "with garbage input" do
       let(:amount) { "some gibberish" }
@@ -161,6 +161,16 @@ RSpec.describe ProcessPayments, type: :service do
     end
   end
 
+  describe "when the same request is repeated with the same key" do
+    it "should report the repeat as replayed without charging again" do
+      key = SecureRandom.uuid
+
+      expect(described_class.new(payload, idempotency_key: key).call).to eq(:created)
+      expect(described_class.new(JSON.parse(File.read('./spec/fixtures/payload_1.json')), idempotency_key: key).call).to eq(:replayed)
+      expect(Payment.count).to eq(3)
+    end
+  end
+
   describe "when any of firms is not found" do
     let(:payload) { base_payload.merge('payer_firm_uuid' => 'aa819b12-f953-40ed-b4fe-68b30729cc6e') }
 
@@ -176,8 +186,8 @@ RSpec.describe ProcessPayments, type: :service do
       n
     end
 
-    it "should return false, so app responds with 422 Not Enough Funds" do
-      expect(subject).to be false
+    it "should report insufficient balance, so app responds with 422" do
+      expect(subject).to eq(:insufficient_balance)
     end
   end
 
@@ -185,7 +195,7 @@ RSpec.describe ProcessPayments, type: :service do
     before { Firm.find_by(name: 'Pinecrest CPA Group').update!(balance_cents: 625000 + 580050 + 120075) }
 
     it "should spend the whole balance down to zero" do
-      expect(subject).to be true
+      expect(subject).to eq(:created)
       expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(0)
     end
   end
@@ -195,7 +205,7 @@ RSpec.describe ProcessPayments, type: :service do
       expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
 
       result = subject
-      expect(result).to be true
+      expect(result).to eq(:created)
 
       expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)
       expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(5000000 - 625000 - 580050 - 120075)
@@ -222,7 +232,7 @@ RSpec.describe ProcessPayments, type: :service do
         results = []
         thread_number.times do |number|
           threads << Thread.new do
-            result = described_class.new(payload).call
+            result = described_class.new(payload, idempotency_key: SecureRandom.uuid).call
             results << result
             puts "Thread ##{number}(#{Thread.current.object_id}) - balances update: #{result}"
           end
@@ -231,7 +241,7 @@ RSpec.describe ProcessPayments, type: :service do
 
         expect(Firm.pluck(:balance_cents).sum).to eq(1_000_000_000 + 200000 + 50000)
         expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(1_000_000_000 - (625000 + 580050 + 120075) * thread_number)
-        expect(results.all?).to be true
+        expect(results).to all(eq(:created))
       end
 
       # firms are locked in id order, so circular payments wait for each other instead of deadlocking
@@ -263,7 +273,7 @@ RSpec.describe ProcessPayments, type: :service do
         payloads = [payload, payload2, payload3]
         thread_number.times do |number|
           threads << Thread.new do
-            result = described_class.new(payloads[number % 3]).call
+            result = described_class.new(payloads[number % 3], idempotency_key: SecureRandom.uuid).call
             results << result
             puts "Thread ##{number}(#{Thread.current.object_id}) - balances update: #{result}"
           end
@@ -271,7 +281,7 @@ RSpec.describe ProcessPayments, type: :service do
         threads.each(&:join)
 
         expect(Firm.pluck(:balance_cents).sum).to eq(5000000 * 3)
-        expect(results.all?).to be true
+        expect(results).to all(eq(:created))
       end
     end
 

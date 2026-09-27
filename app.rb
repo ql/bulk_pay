@@ -17,13 +17,18 @@ class App
     payload = JSON.parse(raw_body)
 
     # main service call
-    if ProcessPayments.new(payload).call
+    case ProcessPayments.new(payload, idempotency_key: env['HTTP_IDEMPOTENCY_KEY']).call
+    in :created
       [201, {"content-type" => "text/plain"}, ["Created"]]
-    else
+    in :replayed
+      [201, {"content-type" => "text/plain", "idempotent-replayed" => "true"}, ["Created"]]
+    in :insufficient_balance
       [422, {"content-type" => "text/plain"}, ["Insufficient balance"]]
     end
   rescue JSON::ParserError, App::InvalidInputJson => e
     [400, {"content-type" => "text/plain"}, ["Invalid JSON submitted: #{e.message}"]]
+  rescue App::IdempotencyKeyReused => e
+    [422, {"content-type" => "text/plain"}, [e.message]]
   rescue ActiveRecord::RecordNotFound => e
     [404, {"content-type" => "text/plain"}, ["Not found: #{e.message}"]]
   rescue App::ConcurrencyError, ActiveRecord::ConnectionTimeoutError => e
