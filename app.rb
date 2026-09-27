@@ -10,6 +10,7 @@ class App
     raw_body = req.body.read
     payload = JSON.parse(raw_body)
 
+    # main service call
     if ProcessPayments.new(payload).call
       [201, {"content-type" => "text/plain"}, ["Created"]]
     else
@@ -21,8 +22,8 @@ class App
     [404, {"content-type" => "text/plain"}, ["Not found: #{e.message}"]]
   rescue App::ConcurrencyError => e
     [503, {"content-type" => "text/plain"}, ["Error: #{e.message}"]]
-#  rescue => e
-#    [500, {"content-type" => "text/plain"}, ["Service error"]]
+  rescue => e
+    [500, {"content-type" => "text/plain"}, ["Service error"]]
   end
 end
 

@@ -1,3 +1,5 @@
+# this might be split into 1) validator 2) payment processor 3) transaction handler or smth
+# however it's not yet viable while it contains only 100 lines - better to keep all in one place for now
 class ProcessPayments
   attr_accessor :json
 
@@ -83,10 +85,10 @@ class ProcessPayments
   def parse_amount(dollars_amount)
     dollars, cents = dollars_amount.split('.')
     dollars = dollars.to_i
-    raise ArgumentError, "wrong amount format" unless dollars.positive?
+    raise ArgumentError, "wrong amount format #{dollars_amount}" unless dollars.positive?
 
     if cents.present? && cents.to_i.zero?
-      raise ArgumentError, "wrong amount format"
+      raise ArgumentError, "wrong amount format #{dollars_amount}"
     end
 
     case cents.to_s.size
@@ -97,7 +99,7 @@ class ProcessPayments
     when 2 # 9.99
       dollars * 100 + cents.to_i
     else
-      raise ArgumentError, "wrong amount format"
+      raise ArgumentError, "wrong amount format #{dollars_amount}"
     end
   end
 end
