@@ -1,8 +1,9 @@
 _default: &default
-  host: 'localhost'
+  host: <%= ENV.fetch("DB_HOST", "localhost") %>
+  port: <%= ENV.fetch("DB_PORT", 5432) %>
   adapter: 'postgresql'
   encoding: utf-8
-  username: <%= ENV.fetch("DB_USER", "bulk_pay") %> # FIXME
+  username: <%= ENV.fetch("DB_USER", "bulk_pay") %>
   password: <%= ENV.fetch("DB_PASS", "") %>
   pool: <%= ENV.fetch("MAX_THREADS", 5) %> # must be >= puma threads per process, see config/puma.rb
   connect_timeout: 2
