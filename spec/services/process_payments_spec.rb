@@ -6,6 +6,8 @@ RSpec.describe ProcessPayments, type: :service do
   let(:base_payload) { JSON.parse(File.read('./spec/fixtures/payload_1.json')) }
   let(:payload) { base_payload }
 
+  before(:each) { seed_data }
+
   describe "when JSON is invalid" do
     let(:payload) { {} }
 

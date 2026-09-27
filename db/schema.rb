@@ -16,14 +16,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
 
   create_table "firms", force: :cascade do |t|
     t.string "name", null: false
-    t.integer "balance_cents"
-    t.uuid "uuid"
+    t.integer "balance_cents", null: false
+    t.uuid "uuid", null: false
+    t.index ["uuid"], name: "index_firms_on_uuid", unique: true
+    t.check_constraint "balance_cents > 0", name: "positive_balance"
   end
 
   create_table "payments", force: :cascade do |t|
-    t.uuid "payer_firm_id", null: false
-    t.uuid "payee_firm_id", null: false
-    t.integer "amount_cents"
+    t.uuid "payer_firm_id"
+    t.uuid "payee_firm_id"
+    t.integer "amount_cents", null: false
     t.text "description"
+    t.index ["payee_firm_id"], name: "index_payments_on_payee_firm_id"
+    t.index ["payer_firm_id"], name: "index_payments_on_payer_firm_id"
+    t.check_constraint "amount_cents > 0", name: "positive_amount"
+    t.check_constraint "payee_firm_id <> payer_firm_id", name: "no_self_payments"
   end
+
+  add_foreign_key "payments", "firms", column: "payee_firm_id", primary_key: "uuid"
+  add_foreign_key "payments", "firms", column: "payer_firm_id", primary_key: "uuid"
 end

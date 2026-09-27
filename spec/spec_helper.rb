@@ -11,9 +11,12 @@ RSpec.configure do |config|
   config.around(:each) do |example|
     Payment.delete_all
     Firm.delete_all
-    ActiveRecord::Base.connection.execute(File.read("./db/seeds/seed.sql"))
     example.run
   end
+end
+
+def seed_data
+  ActiveRecord::Base.connection.execute(File.read("./db/seeds/seed.sql"))
 end
 
 require './app/app.rb'
