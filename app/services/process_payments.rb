@@ -8,7 +8,7 @@ class ProcessPayments
     validate_and_prepare
     uuids = extract_firm_uids
     ActiveRecord::Base.transaction(isolation: :read_committed) do
-      lock_and_cache_firms(uuids)
+      atomic_lock_and_cache_firms(uuids)
       return false unless sufficient_payer_balance?
 
       json['payments'].each { |p| process_payment(p) }
@@ -69,7 +69,8 @@ class ProcessPayments
 
   def extract_firm_uids = [payer_uuid] + json['payments'].map { |p| p['payee_firm_uuid'] }.uniq
 
-  def lock_and_cache_firms(uuids)
+  # this is the most important piece of whole concurrency thing
+  def atomic_lock_and_cache_firms(uuids)
     @firm_cache = {}
     Firm.where(uuid: uuids).lock('FOR UPDATE NOWAIT').all.each do |f|
       @firm_cache[f.uuid] = f

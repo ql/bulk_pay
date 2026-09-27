@@ -1,12 +1,14 @@
 require 'rake'
 ENV['APP_ENV'] = 'test'
 
+# reset db with Rake
 rake = Rake::Application.new
 Rake.application = rake
 rake.load_rakefile
 Rake::Task["db:reset"].invoke
 
 #ActiveRecord::Base.logger = Logger.new(STDOUT)
+
 RSpec.configure do |config|
   config.around(:each) do |example|
     Payment.delete_all
