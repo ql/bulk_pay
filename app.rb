@@ -16,7 +16,7 @@ class App
     else
       [422, {"content-type" => "text/plain"}, ["Insufficient balance"]]
     end
-  rescue JSON::ParserError, App::InvalidInputJson, ArgumentError => e
+  rescue JSON::ParserError, App::InvalidInputJson => e
     [400, {"content-type" => "text/plain"}, ["Invalid JSON submitted: #{e.message}"]]
   rescue ActiveRecord::RecordNotFound => e
     [404, {"content-type" => "text/plain"}, ["Not found: #{e.message}"]]

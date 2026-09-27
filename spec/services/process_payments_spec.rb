@@ -21,47 +21,47 @@ RSpec.describe ProcessPayments, type: :service do
 
     describe "with garbage input" do
       let(:amount) { "some gibberish" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with mangled decimals" do
       let(:amount) { "100.gibberish" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with too much decimals" do
       let(:amount) { "100.3234234" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with trailing garbage" do
       let(:amount) { "1.5x" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with leading number followed by garbage" do
       let(:amount) { "12abc" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with several dots" do
       let(:amount) { "1.2.3" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with exponent notation" do
       let(:amount) { "1e3" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with non-string amount" do
       let(:amount) { 6250 }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with zero amount" do
       let(:amount) { "0.00" }
-      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+      it { expect { subject }.to raise_exception(App::InvalidInputJson, /wrong amount format/) }
     end
 
     describe "with sub-dollar amount" do

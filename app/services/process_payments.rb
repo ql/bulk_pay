@@ -87,11 +87,11 @@ class ProcessPayments
   # accepts only strings like "300", "5.5", "9.99" - floats are ambiguous for money
   def parse_amount(dollars_amount)
     match = AMOUNT_FORMAT.match(dollars_amount) if dollars_amount.is_a?(String)
-    raise ArgumentError, "wrong amount format #{dollars_amount}" unless match
+    raise App::InvalidInputJson, "wrong amount format #{dollars_amount}" unless match
 
     dollars, cents = match.captures
     amount = dollars.to_i * 100 + cents.to_s.ljust(2, '0').to_i
-    raise ArgumentError, "wrong amount format #{dollars_amount}" unless amount.positive?
+    raise App::InvalidInputJson, "wrong amount format #{dollars_amount}" unless amount.positive?
 
     amount
   end
