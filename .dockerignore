@@ -1,0 +1,11 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+.bundle
+vendor/bundle
+log
+tmp
+.claude
+**/.DS_Store

@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+if [ "$APP_ENV" != "test" ]; then
+  bundle exec rake db:prepare
+fi
+
+exec "$@"

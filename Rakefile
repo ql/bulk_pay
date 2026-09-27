@@ -1,5 +1,6 @@
 require 'erb'
 require 'active_record'
+require 'pg'
 
 namespace :db do
   env = ENV.fetch('APP_ENV', 'development')
@@ -35,6 +36,26 @@ namespace :db do
     ActiveRecord::Base.establish_connection(db_config)
     ActiveRecord::Base.connection.execute(File.read("./db/seeds/seed.sql"))
     puts "Database #{db_config["database"]} seeded."
+  end
+
+  desc "Create the database if missing and run pending migrations, safe to run from several instances at once"
+  task :prepare do
+    lock = PG.connect(host: db_config['host'], port: db_config['port'], user: db_config['username'],
+                      password: db_config['password'], dbname: 'postgres')
+    lock.exec_params('SELECT pg_advisory_lock(hashtext($1))', ["db:prepare #{db_config['database']}"])
+
+    ActiveRecord::Base.establish_connection(db_config_admin)
+    begin
+      ActiveRecord::Base.connection.create_database(db_config["database"])
+      puts "Database #{db_config["database"]} created."
+    rescue ActiveRecord::DatabaseAlreadyExists
+    end
+
+    ActiveRecord::Base.establish_connection(db_config)
+    ActiveRecord::MigrationContext.new("db/migrate/").migrate
+    puts "Database #{db_config["database"]} migrated."
+  ensure
+    lock&.close
   end
 
   desc "Reset the database"
