@@ -7,7 +7,7 @@ class ProcessPayments
   LOCK_TIMEOUT = ENV.fetch('LOCK_TIMEOUT', '3s') # applies to each row lock separately
   STATEMENT_TIMEOUT = ENV.fetch('STATEMENT_TIMEOUT', '5s') # caps total wait for all row locks
 
-  attr_accessor :json
+  attr_reader :json, :amounts
 
   def initialize(json) = @json = json
 
@@ -17,21 +17,18 @@ class ProcessPayments
     ActiveRecord::Base.transaction(isolation: :read_committed) do
       set_local_timeouts
       firms = lock_firms
-      next false if firms[payer_uuid].balance_cents < total_amount
+      next false if firms[payer_uuid].balance_cents < amounts.sum
 
       apply_balance_deltas(firms)
       insert_payments(firms)
       true
     end
   rescue ActiveRecord::LockWaitTimeout, ActiveRecord::QueryCanceled, ActiveRecord::Deadlocked
-    # whole transaction is rolled back, so it is safe for the client to retry
     raise App::ConcurrencyError, 'unable to fulfill request, try again'
   end
 
   private
 
-  # SET LOCAL resets on commit/rollback, so it never leaks to other requests on a pooled connection
-  # with_connection reuses the transaction's connection without leasing it to the thread for good
   def set_local_timeouts
     ActiveRecord::Base.with_connection do |connection|
       connection.execute("SET LOCAL lock_timeout = #{connection.quote(LOCK_TIMEOUT)}")
@@ -55,7 +52,7 @@ class ProcessPayments
   def apply_balance_deltas(firms)
     deltas = Hash.new(0)
     json['payments'].zip(amounts) { |p, amount| deltas[p['payee_firm_uuid']] += amount }
-    deltas[payer_uuid] -= total_amount
+    deltas[payer_uuid] -= amounts.sum
 
     deltas.each do |uuid, delta|
       firm = firms.fetch(uuid)
@@ -87,7 +84,6 @@ class ProcessPayments
     raise App::InvalidInputJson, 'empty field "payments"' if json['payments'].empty?
     raise App::InvalidInputJson, "too many payments, max #{MAX_PAYMENTS}" if json['payments'].size > MAX_PAYMENTS
 
-    # uuids are case-insensitive, while firms are cached by lowercase uuid from db
     json['payer_firm_uuid'] = payer_uuid.downcase
 
     json['payments'].each do |p|
@@ -101,15 +97,10 @@ class ProcessPayments
       raise App::InvalidInputJson, 'missing field "description"' unless p['description']
     end
 
-    # parsed before any lock is taken
     @amounts = json['payments'].map { |p| parse_amount(p['amount']) }
 
     true
   end
-
-  def amounts = @amounts
-
-  def total_amount = @total_amount ||= amounts.sum
 
   def payer_uuid = json['payer_firm_uuid']
 
