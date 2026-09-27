@@ -11,9 +11,32 @@
   Testing with Rspec.
 
 3. Transactional safety
-  I decided to build atomic API - response 201 means all data was succesfully updated. That's achieved by using locks on all firms affected by same request with NOWAIT setting and incremental randomized retry. This way even if firms A and B will try to charge each other at the same time it won't immediately cause a deadlock. Worst case scenario would be them getting HTTP 503 as a signal to try again. 
+  I decided to build atomic API - response 201 means all data was succesfully updated. Each request is one transaction:
+    - SET LOCAL lock_timeout / statement_timeout (LOCAL resets on commit, so it never leaks to other requests on a pooled connection)
+    - SELECT ... ORDER BY id FOR UPDATE on all firms of the request. Locking in the same order means concurrent requests
+      (even A paying B while B pays A) wait for each other instead of deadlocking
+    - payer balance check - not enough funds means 422 and nothing is written
+    - one UPDATE per distinct firm with summed deltas (rows are locked, so absolute values can't lose a concurrent update)
+    - one insert_all for payments
+  Transaction is short and has fixed number of statements per firm, not per payment, so locks are held for milliseconds.
+  Only the payer's row really has to be locked (credits can't break any invariant), but updating a payee's balance locks
+  its row anyway, so locking all firms upfront costs nothing extra and gives a deterministic lock order.
+  Lock or statement timeout, a deadlock with some other writer and connection pool exhaustion all mean HTTP 503 - the
+  transaction is rolled back, so the client can safely retry. Batches are capped at 1000 payments to bound lock hold time.
+  Earlier version used FOR UPDATE NOWAIT with randomized sleep-retries - it turned every overlap on a busy firm
+  (think big practice paid by hundreds of others) into 503s and held puma threads while sleeping.
+  If a single hot firm ever becomes a bottleneck, next step is append-only ledger with payee credits applied
+  asynchronously - then only the payer row is locked, at the cost of credits not being visible immediately.
+  DB constraints (non-negative balance, positive amount, no self payments, FKs) are the last line of defence.
   I decided not to use any kind of async, as Option A - returning HTTP 201 after checking funds and delaying actual processing to background worker would create nasty race conditions, and Option B - implementing fully async API (upload - poll for results) will impose larger load on API consumer. Also that would be against task requirements.
 
-4. Intentionally not implemented: authorization, monitoring
+4. Connections and deployment
+  Plain Rack has no Rails executor, so App returns connections to the pool after each request itself.
+  Puma threads and db pool size come from the same MAX_THREADS. Every puma worker has its own pool, so
+  instances * WEB_CONCURRENCY * MAX_THREADS must stay below postgres max_connections - at scale that means PgBouncer
+  in transaction mode (SET LOCAL is compatible with it; prepared statements need PgBouncer 1.21+).
+  idle_in_transaction_session_timeout is a backstop so a stuck request can't keep firm rows locked forever.
 
-4. Starting app - see README.txt
+5. Intentionally not implemented: authorization, monitoring
+
+6. Starting app - see README.txt
