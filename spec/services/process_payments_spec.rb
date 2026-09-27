@@ -34,6 +34,56 @@ RSpec.describe ProcessPayments, type: :service do
       it { expect { subject }.to raise_exception(ArgumentError, "wrong amount format") }
     end
 
+    describe "with trailing garbage" do
+      let(:amount) { "1.5x" }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+    end
+
+    describe "with leading number followed by garbage" do
+      let(:amount) { "12abc" }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+    end
+
+    describe "with several dots" do
+      let(:amount) { "1.2.3" }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+    end
+
+    describe "with exponent notation" do
+      let(:amount) { "1e3" }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+    end
+
+    describe "with non-string amount" do
+      let(:amount) { 6250 }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+    end
+
+    describe "with zero amount" do
+      let(:amount) { "0.00" }
+      it { expect { subject }.to raise_exception(ArgumentError, /wrong amount format/) }
+    end
+
+    describe "with sub-dollar amount" do
+      let(:amount) { "0.50" }
+      it { expect(subject).to eq(50) }
+    end
+
+    describe "with zero cents" do
+      let(:amount) { "10.00" }
+      it { expect(subject).to eq(1000) }
+    end
+
+    describe "with single zero decimal" do
+      let(:amount) { "10.0" }
+      it { expect(subject).to eq(1000) }
+    end
+
+    describe "with leading zero in cents" do
+      let(:amount) { "10.05" }
+      it { expect(subject).to eq(1005) }
+    end
+
     describe "without decimals" do
       let(:amount) { "300" }
       it { expect(subject).to eq(30000) }

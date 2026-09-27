@@ -1,6 +1,8 @@
 # this might be split into 1) validator 2) payment processor 3) transaction handler or smth
 # however it's not yet viable while it contains only 100 lines - better to keep all in one place for now
 class ProcessPayments
+  AMOUNT_FORMAT = /\A(\d+)(?:\.(\d{1,2}))?\z/
+
   attr_accessor :json
 
   def initialize(json) = @json = json
@@ -82,24 +84,15 @@ class ProcessPayments
   def cached_firm(uuid) = @firm_cache[uuid] || raise(ActiveRecord::RecordNotFound.new("firm #{uuid} not found"))
 
   # not using Money gem or such to keep surface small
+  # accepts only strings like "300", "5.5", "9.99" - floats are ambiguous for money
   def parse_amount(dollars_amount)
-    dollars, cents = dollars_amount.split('.')
-    dollars = dollars.to_i
-    raise ArgumentError, "wrong amount format #{dollars_amount}" unless dollars.positive?
+    match = AMOUNT_FORMAT.match(dollars_amount) if dollars_amount.is_a?(String)
+    raise ArgumentError, "wrong amount format #{dollars_amount}" unless match
 
-    if cents.present? && cents.to_i.zero?
-      raise ArgumentError, "wrong amount format #{dollars_amount}"
-    end
+    dollars, cents = match.captures
+    amount = dollars.to_i * 100 + cents.to_s.ljust(2, '0').to_i
+    raise ArgumentError, "wrong amount format #{dollars_amount}" unless amount.positive?
 
-    case cents.to_s.size
-    when 0 # 300
-      dollars * 100
-    when 1 # 5.5
-      dollars * 100 + cents.to_i * 10
-    when 2 # 9.99
-      dollars * 100 + cents.to_i
-    else
-      raise ArgumentError, "wrong amount format #{dollars_amount}"
-    end
+    amount
   end
 end
