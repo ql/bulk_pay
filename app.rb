@@ -24,6 +24,10 @@ class App
     [503, {"content-type" => "text/plain"}, ["Error: #{e.message}"]]
   rescue => e
     [500, {"content-type" => "text/plain"}, ["Service error"]]
+  ensure
+    # Rails returns connections to the pool after each request via its executor, plain Rack has to do it itself.
+    # Without this, any lease_connection call pins a connection to the puma thread for good.
+    ActiveRecord::Base.connection_handler.clear_active_connections!
   end
 end
 

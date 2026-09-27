@@ -4,6 +4,11 @@ _default: &default
   encoding: utf-8
   username: <%= ENV.fetch("DB_USER", "bulk_pay") %> # FIXME
   password: <%= ENV.fetch("DB_PASS", "") %>
+  pool: <%= ENV.fetch("MAX_THREADS", 5) %> # must be >= puma threads per process, see config/puma.rb
+  connect_timeout: 2
+  variables:
+    # backstop: a stuck request must not keep firm rows locked forever
+    idle_in_transaction_session_timeout: 10s
 
 development:
   <<: *default
