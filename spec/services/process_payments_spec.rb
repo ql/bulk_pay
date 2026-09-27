@@ -16,6 +16,14 @@ RSpec.describe ProcessPayments, type: :service do
     end
   end
 
+  describe "when payments list is empty" do
+    let(:payload) { base_payload.merge('payments' => []) }
+
+    it "should raise an InvalidInputJson exception" do
+      expect { subject }.to raise_exception(App::InvalidInputJson, 'empty field "payments"')
+    end
+  end
+
   describe "amounts" do
     subject { described_class.new(payload).send(:parse_amount, amount) }
 

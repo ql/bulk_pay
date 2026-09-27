@@ -55,6 +55,7 @@ class ProcessPayments
   def validate_and_prepare
     raise App::InvalidInputJson, 'missing field "payer_firm_uuid"' unless payer_uuid
     raise App::InvalidInputJson, 'missing field "payments"' unless json['payments'].is_a?(Array)
+    raise App::InvalidInputJson, 'empty field "payments"' if json['payments'].empty?
 
     json['payments'].each do |p|
       raise App::InvalidInputJson, 'missing field "amount"' unless p['amount']
