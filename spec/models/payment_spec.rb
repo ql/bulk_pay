@@ -19,6 +19,16 @@ RSpec.describe Payment, type: :model do
       expect(subject).not_to be_valid
     end
 
+    it 'requires description' do
+      subject.description = nil
+      expect(subject).not_to be_valid
+    end
+
+    it 'allows empty description' do
+      subject.description = ''
+      expect(subject).to be_valid
+    end
+
     it 'self payment is not allowed' do
       subject.payer_firm_id = subject.payee_firm_id
       expect(subject).not_to be_valid
@@ -37,6 +47,10 @@ RSpec.describe Payment, type: :model do
 
     it 'prevent self payment' do
       expect { described_class.update_all('payer_firm_id = payee_firm_id') }.to raise_exception(ActiveRecord::CheckViolation)
+    end
+
+    it 'requires description' do
+      expect { described_class.update_all(description: nil) }.to raise_exception(ActiveRecord::NotNullViolation)
     end
 
     it 'requires both firms' do

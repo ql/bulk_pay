@@ -137,6 +137,29 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       end
     end
 
+    context 'with empty descriptions' do
+      let(:payload) { super().tap { |p| p['payments'][0]['description'] = ''; p['payments'][1]['description'] = '   ' } }
+
+      it 'stores them as given' do
+        expect(response.status).to eq(201)
+        expect(Payment.order(:id).limit(2).pluck(:description)).to eq(['', '   '])
+      end
+    end
+
+    context 'with the largest valid request' do
+      let(:payload) do
+        { 'payer_firm_uuid' => payer_uuid,
+          'payments' => Array.new(ProcessPayments::MAX_PAYMENTS) { |i|
+            { 'amount' => '1.00', 'payee_firm_uuid' => i.even? ? nair_uuid : lopez_uuid,
+              'description' => 'd' * ProcessPayments::MAX_DESCRIPTION_LENGTH }
+          } }
+      end
+
+      it 'is accepted' do
+        expect(response.status).to eq(201)
+      end
+    end
+
     context 'when a payee starts with zero balance' do
       before { set_balance(lopez_uuid, 0) }
 
@@ -216,6 +239,8 @@ RSpec.describe 'POST /bulk_payments', type: :request do
       'payer paying itself'       => ->(p) { p.tap { p['payments'][0]['payee_firm_uuid'] = p['payer_firm_uuid'] } },
       'payer paying itself (uppercase)' => ->(p) { p.tap { p['payments'][0]['payee_firm_uuid'] = p['payer_firm_uuid'].upcase } },
       'missing description'       => ->(p) { p.tap { p['payments'][0].delete('description') } },
+      'non-string description'    => ->(p) { p.tap { p['payments'][0]['description'] = { 'x' => [1, 2] } } },
+      'too long description'      => ->(p) { p.tap { p['payments'][0]['description'] = 'a' * (ProcessPayments::MAX_DESCRIPTION_LENGTH + 1) } },
       'too many payments'         => ->(p) { p.merge('payments' => p['payments'] * (ProcessPayments::MAX_PAYMENTS / 3 + 1)) }
     }
 

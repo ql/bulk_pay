@@ -3,6 +3,7 @@
 class ProcessPayments
   AMOUNT_FORMAT = /\A(\d+)(?:\.(\d{1,2}))?\z/
   UUID_FORMAT = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
+  MAX_DESCRIPTION_LENGTH = 500
   MAX_PAYMENTS = 1000 # bounds lock hold time and insert statement size
   LOCK_TIMEOUT = ENV.fetch('LOCK_TIMEOUT', '3s') # applies to each row lock separately
   STATEMENT_TIMEOUT = ENV.fetch('STATEMENT_TIMEOUT', '5s') # caps total wait for all row locks
@@ -95,6 +96,7 @@ class ProcessPayments
       p['payee_firm_uuid'] = p['payee_firm_uuid'].downcase
       raise App::InvalidInputJson, 'same field "payee_firm_uuid"' if p['payee_firm_uuid'] == payer_uuid
       raise App::InvalidInputJson, 'missing field "description"' unless p['description']
+      raise App::InvalidInputJson, 'invalid field "description"' unless valid_description?(p['description'])
     end
 
     @amounts = json['payments'].map { |p| parse_amount(p['amount']) }
@@ -105,6 +107,8 @@ class ProcessPayments
   def payer_uuid = json['payer_firm_uuid']
 
   def uuid?(value) = value.is_a?(String) && UUID_FORMAT.match?(value)
+
+  def valid_description?(value) = value.is_a?(String) && value.length <= MAX_DESCRIPTION_LENGTH
 
   # not using Money gem or such to keep surface small
   # accepts only strings like "300", "5.5", "9.99" - floats are ambiguous for money

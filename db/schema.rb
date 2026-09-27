@@ -26,7 +26,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
     t.bigint "payer_firm_id", null: false
     t.bigint "payee_firm_id", null: false
     t.bigint "amount_cents", null: false
-    t.text "description"
+    t.text "description", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["payee_firm_id"], name: "index_payments_on_payee_firm_id"
