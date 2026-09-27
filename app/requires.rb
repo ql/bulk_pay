@@ -2,6 +2,7 @@ require 'active_record'
 require 'erb'
 require 'yaml'
 require 'json'
+require 'rack'
 
 env = ENV.fetch('APP_ENV', 'development')
 content = File.read('config/database.yml')
