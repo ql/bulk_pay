@@ -36,6 +36,9 @@
   instances * WEB_CONCURRENCY * MAX_THREADS must stay below postgres max_connections - at scale that means PgBouncer
   in transaction mode (SET LOCAL is compatible with it; prepared statements need PgBouncer 1.21+).
   idle_in_transaction_session_timeout is a backstop so a stuck request can't keep firm rows locked forever.
+  Request body size limit is not enforced by the app - it's supposed to be handled by an outer layer like nginx
+  (client_max_body_size) or an auth proxy. The largest valid request (1000 payments with 500 char descriptions)
+  is about 600KB, so 1MB limit there is enough.
 
 5. Intentionally not implemented: authorization, monitoring
 
