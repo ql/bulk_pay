@@ -6,8 +6,13 @@ gem 'activerecord'
 gem 'pg'
 gem 'puma'
 gem 'rake'
-gem 'rack-app'
+gem 'rack'
+gem 'rackup'
 gem 'rspec'
+
+group :development do
+  gem 'pry'
+end
 
 group :test do
   gem 'minitest'

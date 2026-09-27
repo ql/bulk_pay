@@ -4,8 +4,8 @@ RSpec.describe Payment, type: :model do
 
   subject do
     described_class.new(
-      payer_firm_id: '3f1c9a2e-7b4d-4c1e-9a55-2d8e6f0b7c41',
-      payee_firm_id: '8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10',
+      payer_firm_id: 1,
+      payee_firm_id: 2,
       amount_cents: 10000,
       description: 'payment 1', 
     )
@@ -39,7 +39,7 @@ RSpec.describe Payment, type: :model do
       expect { described_class.update_all('payer_firm_id = payee_firm_id') }.to raise_exception(ActiveRecord::CheckViolation)
     end
 
-    it 'maintans integrity' do
+    it 'maintains integrity' do
       subject.save!
       expect { subject.payer_firm.destroy }.to raise_exception(ActiveRecord::InvalidForeignKey)
       expect { subject.payee_firm.destroy }.to raise_exception(ActiveRecord::InvalidForeignKey)

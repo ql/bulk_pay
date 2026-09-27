@@ -12,7 +12,7 @@ RSpec.describe ProcessPayments, type: :service do
     let(:payload) { {} }
 
     it "should raise an InvalidInputJson exception" do
-      expect { subject }.to raise_exception(InvalidInputJson)
+      expect { subject }.to raise_exception(App::InvalidInputJson)
     end
   end
 
@@ -86,8 +86,8 @@ RSpec.describe ProcessPayments, type: :service do
 
       lopez_payment = Payment.find_by(amount_cents: 120075)
       expect(lopez_payment.description).to eq("Bookkeeping cleanup, 3 clients")
-      expect(lopez_payment.payer_firm_id).to eq('3f1c9a2e-7b4d-4c1e-9a55-2d8e6f0b7c41')
-      expect(lopez_payment.payee_firm_id).to eq('8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10')
+      expect(lopez_payment.payer_firm.uuid).to eq('3f1c9a2e-7b4d-4c1e-9a55-2d8e6f0b7c41')
+      expect(lopez_payment.payee_firm.uuid).to eq('8b2e4c71-0d3a-4f6e-b1c9-5a7d2e9f4c10')
     end
 
     describe "with concurrent requests" do

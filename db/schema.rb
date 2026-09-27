@@ -23,8 +23,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
   end
 
   create_table "payments", force: :cascade do |t|
-    t.uuid "payer_firm_id"
-    t.uuid "payee_firm_id"
+    t.bigint "payer_firm_id"
+    t.bigint "payee_firm_id"
     t.integer "amount_cents", null: false
     t.text "description"
     t.index ["payee_firm_id"], name: "index_payments_on_payee_firm_id"
@@ -33,6 +33,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
     t.check_constraint "payee_firm_id <> payer_firm_id", name: "no_self_payments"
   end
 
-  add_foreign_key "payments", "firms", column: "payee_firm_id", primary_key: "uuid"
-  add_foreign_key "payments", "firms", column: "payer_firm_id", primary_key: "uuid"
+  add_foreign_key "payments", "firms", column: "payee_firm_id"
+  add_foreign_key "payments", "firms", column: "payer_firm_id"
 end

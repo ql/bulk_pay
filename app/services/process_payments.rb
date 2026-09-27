@@ -4,7 +4,6 @@ class ProcessPayments
   def initialize(json) = @json = json
 
   def call
-    retries = 0
     validate_and_prepare
     uuids = extract_firm_uids
     ActiveRecord::Base.transaction(isolation: :read_committed) do
@@ -16,15 +15,15 @@ class ProcessPayments
 
     true
   rescue ActiveRecord::SerializationFailure, ActiveRecord::LockWaitTimeout => e
-    retries ||= 0
-    if retries < 3
-      retries += 1
-      delay = rand * retries
-      puts "Thread #{Thread.current.object_id} got #{e.class} failure, retrying in #{delay} s. (retry ##{retries})"
+    @retries ||= 0
+    if @retries < 3
+      @retries += 1
+      delay = rand * @retries
+      puts "Thread #{Thread.current.object_id} got #{e.class} failure, retrying in #{delay} s. (retry ##{@retries})"
       sleep(delay)
       retry
     else
-      raise(ConcurrencyError, "unable to fullfill request, try again")
+      raise(App::ConcurrencyError, "unable to fullfill request, try again")
     end
   end
 
@@ -41,8 +40,8 @@ class ProcessPayments
     payee_firm.save!
     payer_firm.save!
     Payment.create!(
-      payer_firm_id: payer_firm.uuid,
-      payee_firm_id: payee_firm.uuid,
+      payer_firm:,
+      payee_firm:,
       amount_cents: amount,
       description: payment['description']
     )
@@ -50,14 +49,14 @@ class ProcessPayments
 
   # poor man's schema checker here
   def validate_and_prepare
-    raise InvalidInputJson, 'missing field "payer_firm_uuid"' unless payer_uuid
-    raise InvalidInputJson, 'missing field "payments"' unless json['payments'].is_a?(Array)
+    raise App::InvalidInputJson, 'missing field "payer_firm_uuid"' unless payer_uuid
+    raise App::InvalidInputJson, 'missing field "payments"' unless json['payments'].is_a?(Array)
 
     json['payments'].each do |p|
-      raise InvalidInputJson, 'missing field "amount"' unless p['amount']
-      raise InvalidInputJson, 'missing field "payee_firm_uuid"' unless p['payee_firm_uuid']
-      raise InvalidInputJson, 'same field "payee_firm_uuid"' if p['payee_firm_uuid'] == payer_uuid
-      raise InvalidInputJson, 'missing field "description"' unless p['description']
+      raise App::InvalidInputJson, 'missing field "amount"' unless p['amount']
+      raise App::InvalidInputJson, 'missing field "payee_firm_uuid"' unless p['payee_firm_uuid']
+      raise App::InvalidInputJson, 'same field "payee_firm_uuid"' if p['payee_firm_uuid'] == payer_uuid
+      raise App::InvalidInputJson, 'missing field "description"' unless p['description']
     end
 
     true
@@ -72,6 +71,7 @@ class ProcessPayments
   # this is the most important piece of whole concurrency thing
   def atomic_lock_and_cache_firms(uuids)
     @firm_cache = {}
+
     Firm.where(uuid: uuids).lock('FOR UPDATE NOWAIT').all.each do |f|
       @firm_cache[f.uuid] = f
     end
