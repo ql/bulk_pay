@@ -462,6 +462,23 @@ RSpec.describe 'POST /bulk_payments', type: :request do
     end
   end
 
+  describe 'error logging' do
+    it 'logs the exception with backtrace on 500' do
+      allow(Payment).to receive(:insert_all!).and_raise('boom')
+      expect(App.logger).to receive(:error).with(a_string_matching(/boom.*\n.*process_payments\.rb/m))
+
+      expect(post(payload).status).to eq(500)
+    end
+
+    it 'does not log expected failures' do
+      expect(App.logger).not_to receive(:error)
+
+      post(payload.merge('payments' => []))
+      post(fixture('payload_not_enough_balance.json'))
+      post(fixture('payload_non_existent_firm.json'))
+    end
+  end
+
   describe 'concurrent requests' do
     # the main thread holds one connection, keep the rest of the default pool (5) for workers
     let(:thread_count) { 4 }

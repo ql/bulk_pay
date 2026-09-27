@@ -22,3 +22,5 @@ def seed_data
 end
 
 require './app.rb'
+
+App.logger = Logger.new(File::NULL)

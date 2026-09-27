@@ -1,6 +1,12 @@
 require './app/requires.rb'
 
 class App
+  class << self
+    attr_writer :logger
+
+    def logger = @logger ||= Logger.new($stderr)
+  end
+
   def self.call(env)
     req = Rack::Request.new(env)
 
@@ -23,6 +29,7 @@ class App
   rescue App::ConcurrencyError, ActiveRecord::ConnectionTimeoutError => e
     [503, {"content-type" => "text/plain"}, ["Error: #{e.message}"]]
   rescue => e
+    logger.error(e.full_message(highlight: false))
     [500, {"content-type" => "text/plain"}, ["Service error"]]
   ensure
     # Rails returns connections to the pool after each request via its executor, plain Rack has to do it itself.
