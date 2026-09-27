@@ -1,4 +1,6 @@
 require 'active_record'
+require 'erb'
+require 'yaml'
 require 'json'
 
 env = ENV.fetch('APP_ENV', 'development')
