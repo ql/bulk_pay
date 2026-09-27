@@ -4,7 +4,7 @@ class App
   def self.call(env)
     req = Rack::Request.new(env)
 
-    return [404, {"content-type" => "text/plain"}, ["Not found"]] unless req.path == '/bulk_get'
+    return [404, {"content-type" => "text/plain"}, ["Not found"]] unless req.path == '/bulk_payments'
     return [405, {"content-type" => "text/plain"}, ["Method Not Allowed"]] unless req.post?
 
     raw_body = req.body.read
