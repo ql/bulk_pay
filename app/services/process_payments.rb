@@ -2,6 +2,7 @@
 # however it's not yet viable while it contains only 100 lines - better to keep all in one place for now
 class ProcessPayments
   AMOUNT_FORMAT = /\A(\d+)(?:\.(\d{1,2}))?\z/
+  UUID_FORMAT = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
 
   attr_accessor :json
 
@@ -53,13 +54,22 @@ class ProcessPayments
 
   # poor man's schema checker here
   def validate_and_prepare
+    raise App::InvalidInputJson, 'request body must be a JSON object' unless json.is_a?(Hash)
     raise App::InvalidInputJson, 'missing field "payer_firm_uuid"' unless payer_uuid
+    raise App::InvalidInputJson, 'invalid field "payer_firm_uuid"' unless uuid?(payer_uuid)
     raise App::InvalidInputJson, 'missing field "payments"' unless json['payments'].is_a?(Array)
     raise App::InvalidInputJson, 'empty field "payments"' if json['payments'].empty?
 
+    # uuids are case-insensitive, while firms are cached by lowercase uuid from db
+    json['payer_firm_uuid'] = payer_uuid.downcase
+
     json['payments'].each do |p|
+      raise App::InvalidInputJson, 'payment must be a JSON object' unless p.is_a?(Hash)
       raise App::InvalidInputJson, 'missing field "amount"' unless p['amount']
       raise App::InvalidInputJson, 'missing field "payee_firm_uuid"' unless p['payee_firm_uuid']
+      raise App::InvalidInputJson, 'invalid field "payee_firm_uuid"' unless uuid?(p['payee_firm_uuid'])
+
+      p['payee_firm_uuid'] = p['payee_firm_uuid'].downcase
       raise App::InvalidInputJson, 'same field "payee_firm_uuid"' if p['payee_firm_uuid'] == payer_uuid
       raise App::InvalidInputJson, 'missing field "description"' unless p['description']
     end
@@ -70,6 +80,8 @@ class ProcessPayments
   def sufficient_payer_balance? = cached_firm(payer_uuid).balance_cents >= json['payments'].map { |p| parse_amount(p['amount']) }.sum
 
   def payer_uuid = json['payer_firm_uuid']
+
+  def uuid?(value) = value.is_a?(String) && UUID_FORMAT.match?(value)
 
   def extract_firm_uids = [payer_uuid] + json['payments'].map { |p| p['payee_firm_uuid'] }.uniq
 

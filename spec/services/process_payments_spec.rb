@@ -24,6 +24,59 @@ RSpec.describe ProcessPayments, type: :service do
     end
   end
 
+  describe "when JSON top level is not an object" do
+    let(:payload) { [] }
+
+    it "should raise an InvalidInputJson exception" do
+      expect { subject }.to raise_exception(App::InvalidInputJson, 'request body must be a JSON object')
+    end
+  end
+
+  describe "when a payment is not an object" do
+    let(:payload) { base_payload.merge('payments' => ['6250']) }
+
+    it "should raise an InvalidInputJson exception" do
+      expect { subject }.to raise_exception(App::InvalidInputJson, 'payment must be a JSON object')
+    end
+  end
+
+  describe "when payer uuid is malformed" do
+    let(:payload) { base_payload.merge('payer_firm_uuid' => 'dummy') }
+
+    it "should raise an InvalidInputJson exception" do
+      expect { subject }.to raise_exception(App::InvalidInputJson, 'invalid field "payer_firm_uuid"')
+    end
+  end
+
+  describe "when payee uuid is malformed" do
+    let(:payload) { base_payload.tap { |p| p['payments'][0]['payee_firm_uuid'] = 42 } }
+
+    it "should raise an InvalidInputJson exception" do
+      expect { subject }.to raise_exception(App::InvalidInputJson, 'invalid field "payee_firm_uuid"')
+    end
+  end
+
+  describe "when uuids are uppercase" do
+    let(:payload) do
+      base_payload.tap do |p|
+        p['payer_firm_uuid'] = p['payer_firm_uuid'].upcase
+        p['payments'].each { |payment| payment['payee_firm_uuid'] = payment['payee_firm_uuid'].upcase }
+      end
+    end
+
+    it "should match firms case-insensitively" do
+      expect(subject).to be true
+    end
+  end
+
+  describe "when payer pays itself using uppercase uuid" do
+    let(:payload) { base_payload.tap { |p| p['payments'][0]['payee_firm_uuid'] = p['payer_firm_uuid'].upcase } }
+
+    it "should raise an InvalidInputJson exception" do
+      expect { subject }.to raise_exception(App::InvalidInputJson, 'same field "payee_firm_uuid"')
+    end
+  end
+
   describe "amounts" do
     subject { described_class.new(payload).send(:parse_amount, amount) }
 
@@ -109,10 +162,10 @@ RSpec.describe ProcessPayments, type: :service do
   end
 
   describe "when any of firms is not found" do
-    let(:payload) { base_payload.merge('payer_firm_uuid' => 'dummy') }
+    let(:payload) { base_payload.merge('payer_firm_uuid' => 'aa819b12-f953-40ed-b4fe-68b30729cc6e') }
 
     it "should raise a RecordNotFound exception" do
-      expect { subject }.to raise_exception(ActiveRecord::RecordNotFound, "firm dummy not found")
+      expect { subject }.to raise_exception(ActiveRecord::RecordNotFound, "firm aa819b12-f953-40ed-b4fe-68b30729cc6e not found")
     end
   end
 
