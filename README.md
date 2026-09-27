@@ -43,3 +43,11 @@ curl -i -X POST localhost:9292/bulk_payments \
 | 404 | Unknown firm |
 | 422 | Insufficient balance (nothing is paid), or key already used for a different request |
 | 503 | Firms are busy, retry with the same key |
+
+## Further work
+
+This solution is deliberately minimalistic. In order to deploy it as a production service following things should be implemented:
+ - Authentication. It should be probably implemented as outer layer indpendent from this logic and providing just some signal that request was already authenticated
+ - Monitoring - Sentry or something similar for exception handling, NewRelic-style instrumentation to see performance and DB queries
+ - Load testing - this service should be tested in thousands of firms sending requests to each other simultaneously (simulating congestion at the end of accounting period)
+ - Improving API accessibility, i.e. providing full list of payments or at least their count
