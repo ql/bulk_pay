@@ -142,6 +142,7 @@ RSpec.describe ProcessPayments, type: :service do
       expect(Firm.find_by(name: 'Nair Tax Services').balance_cents).to eq(200000 + 625000 + 580050)
 
       expect(Payment.count).to eq(3)
+      expect(Payment.where(created_at: nil)).to be_empty
 
       lopez_payment = Payment.find_by(amount_cents: 120075)
       expect(lopez_payment.description).to eq("Bookkeeping cleanup, 3 clients")

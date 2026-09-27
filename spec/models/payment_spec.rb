@@ -39,6 +39,11 @@ RSpec.describe Payment, type: :model do
       expect { described_class.update_all('payer_firm_id = payee_firm_id') }.to raise_exception(ActiveRecord::CheckViolation)
     end
 
+    it 'requires both firms' do
+      expect { described_class.update_all(payer_firm_id: nil) }.to raise_exception(ActiveRecord::NotNullViolation)
+      expect { described_class.update_all(payee_firm_id: nil) }.to raise_exception(ActiveRecord::NotNullViolation)
+    end
+
     it 'maintains integrity' do
       subject.save!
       expect { subject.payer_firm.destroy }.to raise_exception(ActiveRecord::InvalidForeignKey)
