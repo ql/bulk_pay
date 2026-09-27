@@ -30,6 +30,11 @@ RSpec.describe Firm, type: :model do
       subject.balance_cents = -1000
       expect(subject).not_to be_valid
     end
+
+    it 'allows zero balance' do
+      subject.balance_cents = 0
+      expect(subject).to be_valid
+    end
   end
 
   describe 'DB validates' do
@@ -37,6 +42,10 @@ RSpec.describe Firm, type: :model do
 
     it 'positiveness of balance' do
       expect { described_class.update_all(balance_cents: -1000) }.to raise_exception(ActiveRecord::CheckViolation)
+    end
+
+    it 'allows zero balance' do
+      expect { described_class.update_all(balance_cents: 0) }.not_to raise_exception
     end
   end
 end

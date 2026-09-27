@@ -70,6 +70,15 @@ RSpec.describe ProcessPayments, type: :service do
     end
   end
 
+  describe "when payer balance exactly equals the total" do
+    before { Firm.find_by(name: 'Pinecrest CPA Group').update!(balance_cents: 625000 + 580050 + 120075) }
+
+    it "should spend the whole balance down to zero" do
+      expect(subject).to be true
+      expect(Firm.find_by(name: 'Pinecrest CPA Group').balance_cents).to eq(0)
+    end
+  end
+
   describe "when there are enough funds" do
     it "should save whole batch in a ledger and return true" do
       expect(Firm.pluck(:balance_cents).sum).to eq(5000000 + 200000 + 50000)

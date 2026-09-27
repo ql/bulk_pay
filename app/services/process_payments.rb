@@ -64,7 +64,7 @@ class ProcessPayments
     true
   end
 
-  def sufficient_payer_balance? = cached_firm(payer_uuid).balance_cents > json['payments'].map { |p| parse_amount(p['amount']) }.sum
+  def sufficient_payer_balance? = cached_firm(payer_uuid).balance_cents >= json['payments'].map { |p| parse_amount(p['amount']) }.sum
 
   def payer_uuid = json['payer_firm_uuid']
 

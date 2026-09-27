@@ -19,7 +19,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_102259) do
     t.integer "balance_cents", null: false
     t.uuid "uuid", null: false
     t.index ["uuid"], name: "index_firms_on_uuid", unique: true
-    t.check_constraint "balance_cents > 0", name: "positive_balance"
+    t.check_constraint "balance_cents >= 0", name: "non_negative_balance"
   end
 
   create_table "payments", force: :cascade do |t|
