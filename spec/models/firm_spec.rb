@@ -48,6 +48,10 @@ RSpec.describe Firm, type: :model do
       expect { described_class.update_all(balance_cents: 0) }.not_to raise_exception
     end
 
+    it 'allows creating firms after seeding' do
+      expect { described_class.create!(name: 'New Firm', balance_cents: 0, uuid: not_seeded_uuid) }.not_to raise_exception
+    end
+
     it 'stores balances beyond 32-bit integer range' do
       described_class.update_all(balance_cents: 10_000_000_000)
       expect(described_class.pluck(:balance_cents).uniq).to eq([10_000_000_000])
