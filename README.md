@@ -2,6 +2,13 @@
 
 Service that lets a firm pay many other firms in one atomic request.
 
+## Runs on
+
+- Ruby 4.0.7 (`.ruby-version`), Bundler 4
+- PostgreSQL 17 in Docker, also tested on 15; 9.6+ required
+- Rack 3 + Puma 7, ActiveRecord 8.1, no Rails
+- Docker with Compose v2 to run it, or local Ruby + Postgres (with `libpq` for the `pg` gem)
+
 ## Run
 
 ```bash
@@ -9,7 +16,20 @@ docker compose up --build                            # http://localhost:9292, AP
 docker compose exec app bundle exec rake db:seed     # 3 demo firms
 ```
 
-Tests (need local Postgres): `bundle exec rspec`
+Without Docker: `bundle install && bundle exec rake db:prepare && bundle exec puma`
+
+Tests: `bundle exec rspec` - needs local Postgres with a `bulk_pay` user allowed to create databases,
+the suite drops and recreates `bulk_pay_test` on every run.
+
+| Env var | Default | |
+|---|---|---|
+| `APP_ENV` | `development` | `development` / `test` / `production` database |
+| `DB_HOST`, `DB_PORT` | `localhost`, `5432` | |
+| `DB_USER`, `DB_PASS` | `bulk_pay`, empty | |
+| `MAX_THREADS` | `5` | Puma threads and DB pool size |
+| `WEB_CONCURRENCY` | `0` | Puma workers |
+| `PORT` | `9292` | port inside the container; `APP_PORT` is the host port in compose |
+| `LOCK_TIMEOUT`, `STATEMENT_TIMEOUT` | `3s`, `5s` | waiting for firm row locks, beyond that 503 |
 
 ## API
 
