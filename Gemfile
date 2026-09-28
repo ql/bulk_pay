@@ -8,12 +8,11 @@ gem 'puma'
 gem 'rake'
 gem 'rack'
 gem 'rackup'
-gem 'rspec'
 
-group :development do
+group :development, :test do
   gem 'pry'
 end
 
 group :test do
-  gem 'minitest'
+  gem 'rspec'
 end

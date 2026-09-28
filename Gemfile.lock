@@ -76,7 +76,6 @@ PLATFORMS
 
 DEPENDENCIES
   activerecord
-  minitest
   pg
   pry
   puma
