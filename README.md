@@ -51,3 +51,7 @@ This solution is deliberately minimalistic. In order to deploy it as a productio
  - Monitoring - Sentry or something similar for exception handling, NewRelic-style instrumentation to see performance and DB queries
  - Load testing - this service should be tested in thousands of firms sending requests to each other simultaneously (simulating congestion at the end of accounting period)
  - Improving API accessibility, i.e. providing full list of payments or at least their count
+
+## Development process
+
+see NOTES.md
