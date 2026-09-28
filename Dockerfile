@@ -1,4 +1,4 @@
-FROM ruby:3.4.5-alpine AS build
+FROM ruby:4.0.7-alpine AS build
 
 RUN apk add --no-cache build-base postgresql-dev
 
@@ -9,7 +9,7 @@ COPY Gemfile Gemfile.lock ./
 RUN bundle install --jobs 4 && rm -rf /usr/local/bundle/ruby/*/cache
 
 
-FROM ruby:3.4.5-alpine
+FROM ruby:4.0.7-alpine
 
 RUN apk add --no-cache libpq
 
